@@ -1,0 +1,28 @@
+{
+    "abs": r#"data[idx] = abs(data[idx]);"#,
+
+    "acos": r#"data[idx] = acos(data[idx]);"#,
+    "asin": r#"data[idx] = asin(data[idx]);"#,
+    "atan": r#"data[idx] = atan(data[idx]);"#,
+    
+    "sin": r#"data[idx] = sin(data[idx]);"#,
+    "sinh": r#"data[idx] = sinh(data[idx]);"#,
+    "cos": r#"data[idx] = cos(data[idx]);"#,
+    "cosh": r#"data[idx] = cosh(data[idx]);"#,
+    "tan": r#"data[idx] = tan(data[idx]);"#,
+    "tanh": r#"data[idx] = tanh(data[idx]);"#,
+    
+    "ceil": r#"data[idx] = ceil(data[idx]);"#,
+    "floor": r#"data[idx] = floor(data[idx]);"#,
+    "round": r#"data[idx] = round(data[idx]);"#,
+    "trunc": r#"data[idx] = trunc(data[idx]);"#,
+    
+    "exp": r#"data[idx] = exp(data[idx]);"#,
+    "log": r#"data[idx] = log(data[idx]);"#,
+    "sqrt": r#"data[idx] = sqrt(data[idx]);"#,
+    "inversesqrt": r#"data[idx] = inverseSqrt(data[idx]);"#,
+
+    "relu": r#"data[idx] = max(data[idx], 0.0);"#,
+    "leaky_relu": r#"data[idx] = max(data[idx], 0.01 * data[idx]);"#,
+    "sigmoid": r#"data[idx] = 1.0 / (1.0 + exp(-data[idx]));"#,
+}
