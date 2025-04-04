@@ -9,8 +9,8 @@ async fn main() -> anyhow::Result<()> {
 
     let mut t1 = tensor::Tensor::new_rand(&runtime, &[4, 4, 4]);
 
-    t1.round(&runtime).unwrap();
-    t1.exp(&runtime).unwrap();
+    t1 = t1.round(&runtime);
+    t1 = t1.exp(&runtime);
 
     println!("t1: {:?}", t1.copy_to_cpu(&runtime));
 

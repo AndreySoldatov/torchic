@@ -7,9 +7,7 @@ use crate::runtime::{self, GPURuntime};
 use super::Tensor;
 
 pub struct UnaryComputeOperation {
-    // pub(crate) shader_module: wgpu::ShaderModule,
     pub(crate) bind_group_layout: wgpu::BindGroupLayout,
-    // pub(crate) pipeline_layout: wgpu::PipelineLayout,
     pub(crate) pipeline: wgpu::ComputePipeline,
 }
 
@@ -17,11 +15,18 @@ impl UnaryComputeOperation {
     pub fn new(device: &wgpu::Device, name: &str, code: &str) -> Self {
         let code_template = format!(
             "@group(0) @binding(0)
-            var<storage, read_write> data: array<f32>;
+            var<storage, read> data: array<f32>;
+            @group(0) @binding(1)
+            var<storage, read_write> output: array<f32>;
 
             @compute @workgroup_size(64)
             fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
                 let idx = global_id.x;
+
+                if (idx >= arrayLength(&data)) {{
+                    return;
+                }}
+
                 {}
             }}",
             code
@@ -34,18 +39,34 @@ impl UnaryComputeOperation {
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some(format!("Unary Opration Compute Bind Group Layout: {}", name).as_str()),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    min_binding_size: Some(
-                        NonZeroU64::new(std::mem::size_of::<f32>() as u64).unwrap(),
-                    ),
-                    has_dynamic_offset: false,
+            entries: &[
+                // Data buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<f32>() as u64).unwrap(),
+                        ),
+                        has_dynamic_offset: false,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                // Output buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<f32>() as u64).unwrap(),
+                        ),
+                        has_dynamic_offset: false,
+                    },
+                    count: None,
+                },
+            ],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -64,16 +85,20 @@ impl UnaryComputeOperation {
         });
 
         Self {
-            // shader_module,
             bind_group_layout,
-            // pipeline_layout,
             pipeline,
         }
     }
 }
 
 impl Tensor {
-    fn perform_unary_operation(&mut self, name: &str, runtime: &GPURuntime) -> anyhow::Result<()> {
+    fn perform_unary_operation(
+        &mut self,
+        name: &str,
+        runtime: &GPURuntime,
+    ) -> anyhow::Result<Self> {
+        let new_tensor = Tensor::new_zeroed(runtime, &self.shape);
+
         let operation = runtime
             .unary_operations
             .get(name)
@@ -90,10 +115,16 @@ impl Tensor {
                     .as_str(),
                 ),
                 layout: &operation.bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.data_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.data_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: new_tensor.data_buffer.as_entire_binding(),
+                    },
+                ],
             });
 
         let mut encoder = runtime
@@ -119,90 +150,91 @@ impl Tensor {
 
         runtime.queue.submit(Some(encoder.finish()));
 
-        Ok(())
+        Ok(new_tensor)
     }
 
-    pub fn abs(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("abs", runtime)
+    pub fn abs(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("abs", runtime).unwrap()
     }
 
-    pub fn acos(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("acos", runtime)
+    pub fn acos(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("acos", runtime).unwrap()
     }
 
-    pub fn asin(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("asin", runtime)
+    pub fn asin(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("asin", runtime).unwrap()
     }
 
-    pub fn atan(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("atan", runtime)
+    pub fn atan(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("atan", runtime).unwrap()
     }
 
-    pub fn sin(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("sin", runtime)
+    pub fn sin(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("sin", runtime).unwrap()
     }
 
-    pub fn sinh(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("sinh", runtime)
+    pub fn sinh(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("sinh", runtime).unwrap()
     }
 
-    pub fn cos(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("cos", runtime)
+    pub fn cos(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("cos", runtime).unwrap()
     }
 
-    pub fn cosh(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("cosh", runtime)
+    pub fn cosh(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("cosh", runtime).unwrap()
     }
 
-    pub fn tan(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("tan", runtime)
+    pub fn tan(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("tan", runtime).unwrap()
     }
 
-    pub fn tanh(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("tanh", runtime)
+    pub fn tanh(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("tanh", runtime).unwrap()
     }
 
-    pub fn ceil(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("ceil", runtime)
+    pub fn ceil(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("ceil", runtime).unwrap()
     }
 
-    pub fn floor(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("floor", runtime)
+    pub fn floor(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("floor", runtime).unwrap()
     }
 
-    pub fn round(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("round", runtime)
+    pub fn round(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("round", runtime).unwrap()
     }
 
-    pub fn trunc(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("trunc", runtime)
+    pub fn trunc(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("trunc", runtime).unwrap()
     }
 
-    pub fn exp(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("exp", runtime)
+    pub fn exp(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("exp", runtime).unwrap()
     }
 
-    pub fn log(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("log", runtime)
+    pub fn log(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("log", runtime).unwrap()
     }
 
-    pub fn sqrt(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("sqrt", runtime)
+    pub fn sqrt(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("sqrt", runtime).unwrap()
     }
 
-    pub fn inversesqrt(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
+    pub fn inversesqrt(&mut self, runtime: &GPURuntime) -> Self {
         self.perform_unary_operation("inversesqrt", runtime)
+            .unwrap()
     }
 
-    pub fn relu(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("relu", runtime)
+    pub fn relu(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("relu", runtime).unwrap()
     }
 
-    pub fn leaky_relu(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("leaky_relu", runtime)
+    pub fn leaky_relu(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("leaky_relu", runtime).unwrap()
     }
 
-    pub fn sigmoid(&mut self, runtime: &GPURuntime) -> anyhow::Result<()> {
-        self.perform_unary_operation("sigmoid", runtime)
+    pub fn sigmoid(&mut self, runtime: &GPURuntime) -> Self {
+        self.perform_unary_operation("sigmoid", runtime).unwrap()
     }
 }
