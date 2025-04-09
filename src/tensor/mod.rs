@@ -1,3 +1,4 @@
+pub mod binary_operators;
 pub mod unary_operators;
 
 use uuid::Uuid;
@@ -118,6 +119,33 @@ impl Tensor {
         Self {
             uuid,
             shape: tensor.shape.clone(),
+            data_buffer,
+        }
+    }
+
+    /// Creates a new identity tensor with the given size.
+    /// The identity tensor is a square matrix with ones on the diagonal and zeros elsewhere.
+    pub fn new_identity(runtime: &GPURuntime, size: usize) -> Self {
+        let uuid = Uuid::new_v4();
+
+        let mut data = vec![0.0; size * size];
+        for i in 0..size {
+            data[i * size + i] = 1.0;
+        }
+
+        let data_buffer = runtime
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(format!("Tensor data buffer: {}", uuid).as_str()),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            });
+
+        Self {
+            uuid,
+            shape: vec![size, size],
             data_buffer,
         }
     }

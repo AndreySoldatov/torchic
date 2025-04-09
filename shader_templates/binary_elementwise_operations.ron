@@ -1,0 +1,17 @@
+{
+    "add": r#"output[idx] = data1[idx] + data2[idx];"#,
+    "sub": r#"output[idx] = data1[idx] - data2[idx];"#,
+    "mul": r#"output[idx] = data1[idx] * data2[idx];"#,
+    "div": r#"output[idx] = data1[idx] / data2[idx];"#,
+    "pow": r#"output[idx] = pow(data1[idx], data2[idx]);"#,
+
+    "min": r#"output[idx] = min(data1[idx], data2[idx]);"#,
+    "max": r#"output[idx] = max(data1[idx], data2[idx]);"#,
+    
+    "eq": r#"if (data1[idx] == data2[idx]) { output[idx] = 1.0; } else { output[idx] = 0.0; }"#,
+    "ne": r#"if (data1[idx] != data2[idx]) { output[idx] = 1.0; } else { output[idx] = 0.0; }"#,
+    "lt": r#"if (data1[idx] < data2[idx]) { output[idx] = 1.0; } else { output[idx] = 0.0; }"#,
+    "le": r#"if (data1[idx] <= data2[idx]) { output[idx] = 1.0; } else { output[idx] = 0.0; }"#,
+    "gt": r#"if (data1[idx] > data2[idx]) { output[idx] = 1.0; } else { output[idx] = 0.0; }"#,
+    "ge": r#"if (data1[idx] >= data2[idx]) { output[idx] = 1.0; } else { output[idx] = 0.0; }"#,
+}
