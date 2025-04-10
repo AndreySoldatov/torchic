@@ -152,7 +152,9 @@ impl Tensor {
         }
     }
 
-    pub fn from_cpu_with_shape(
+    /// Creates a new tensor from CPU data.
+    /// The data is expected to be in a flat format (1D array).
+    pub fn from_cpu_data(
         runtime: &GPURuntime,
         data: &[f32],
         shape: &[usize],
