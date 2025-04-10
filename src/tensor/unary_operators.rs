@@ -7,6 +7,7 @@ impl Tensor {
         let new_tensor = Tensor::new_zeroed(runtime, &self.shape);
 
         let operation = runtime
+            .tensor_operations
             .unary_operations
             .get(name)
             .context(format!("Unary operation '{}' not found in runtime.", name))?;

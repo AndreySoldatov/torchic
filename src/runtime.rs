@@ -7,8 +7,13 @@ use crate::compute_operation::ComputeOperation;
 pub struct GPURuntime {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    pub(crate) tensor_operations: TensorOperations,
+}
+
+pub struct TensorOperations {
     pub(crate) unary_operations: HashMap<String, ComputeOperation>,
     pub(crate) binary_elementwise_operations: HashMap<String, ComputeOperation>,
+    pub(crate) matrix_multiplication_operation: ComputeOperation,
 }
 
 impl GPURuntime {
@@ -60,11 +65,16 @@ impl GPURuntime {
             binary_elementwise_operations.insert(name.clone(), operation);
         }
 
+        let matrix_multiplication_operation = ComputeOperation::new_matmul_operation(&device);
+
         Ok(GPURuntime {
             device,
             queue,
-            unary_operations,
-            binary_elementwise_operations,
+            tensor_operations: TensorOperations {
+                unary_operations,
+                binary_elementwise_operations,
+                matrix_multiplication_operation,
+            },
         })
     }
 }

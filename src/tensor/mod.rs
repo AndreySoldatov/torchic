@@ -1,6 +1,8 @@
 pub mod binary_operators;
+pub mod matrix_multiplication;
 pub mod unary_operators;
 
+use anyhow::bail;
 use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
@@ -148,6 +150,38 @@ impl Tensor {
             shape: vec![size, size],
             data_buffer,
         }
+    }
+
+    pub fn from_cpu_with_shape(
+        runtime: &GPURuntime,
+        data: &[f32],
+        shape: &[usize],
+    ) -> anyhow::Result<Self> {
+        if data.len() != shape.iter().product::<usize>() {
+            bail!(
+                "Data length does not match the product of the shape dimensions. Data length: {}, Shape product: {}",
+                data.len(),
+                shape.iter().product::<usize>()
+            );
+        }
+
+        let uuid = Uuid::new_v4();
+
+        let data_buffer = runtime
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(format!("Tensor data buffer: {}", uuid).as_str()),
+                contents: bytemuck::cast_slice(data),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            });
+
+        Ok(Self {
+            uuid,
+            shape: shape.to_vec(),
+            data_buffer,
+        })
     }
 
     // TODO: Implement a CPU tensor structure to preserve shape

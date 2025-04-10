@@ -21,6 +21,7 @@ impl Tensor {
         let new_tensor = Tensor::new_zeroed(runtime, &self.shape);
 
         let operation = runtime
+            .tensor_operations
             .binary_elementwise_operations
             .get(name)
             .context(format!(

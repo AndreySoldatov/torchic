@@ -1,5 +1,7 @@
 use std::num::NonZeroU64;
 
+use wgpu::core::pipeline;
+
 pub struct ComputeOperation {
     pub(crate) bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) pipeline: wgpu::ComputePipeline,
@@ -164,6 +166,89 @@ impl ComputeOperation {
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some(format!("Binary Opration Compute Pipeline: {}", name).as_str()),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        Self {
+            bind_group_layout,
+            pipeline,
+        }
+    }
+
+    pub fn new_matmul_operation(device: &wgpu::Device) -> Self {
+        let shader_module =
+            device.create_shader_module(wgpu::include_wgsl!("../shader_templates/matmul.wgsl"));
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Matrix Multiplication Bind Group Layout"),
+            entries: &[
+                // Data buffer 1
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<f32>() as u64).unwrap(),
+                        ),
+                        has_dynamic_offset: false,
+                    },
+                    count: None,
+                },
+                // Data buffer 2
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<f32>() as u64).unwrap(),
+                        ),
+                        has_dynamic_offset: false,
+                    },
+                    count: None,
+                },
+                // Output buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<f32>() as u64).unwrap(),
+                        ),
+                        has_dynamic_offset: false,
+                    },
+                    count: None,
+                },
+                // Uniform containing the matrix1 dimensions and matrix2 columns
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<[u32; 3]>() as u64).unwrap(),
+                        ),
+                        has_dynamic_offset: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Matrix Multiplication Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Matrix Multiplication Compute Pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
             entry_point: Some("main"),
