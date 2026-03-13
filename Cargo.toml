@@ -1,0 +1,9 @@
+[package]
+name = "torchic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = "1.25.0"
+graphviz-rust = "0.9.6"
+slotmap = "1.1.1"
