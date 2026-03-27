@@ -1,10 +1,12 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{
+    autograd::GradStore,
     buffer_alloc::{
         BufferAllocatorRef,
         usage_marker::{Readback, Storage},
     },
+    metadata_arena::MetadataArena,
     tensor::Tensor,
 };
 
@@ -40,6 +42,8 @@ pub(crate) struct Runtime {
     pub(crate) ctx: WGPUContext,
     pub(crate) storage_buffer_alloc: BufferAllocatorRef<Storage>,
     pub(crate) readback_buffer_alloc: BufferAllocatorRef<Readback>,
+    pub(crate) metadata_arena: MetadataArena,
+    pub(crate) grad_store: Mutex<GradStore>,
 }
 
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
@@ -50,7 +54,9 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
     let runtime = Runtime {
         ctx: ctx.clone(),
         storage_buffer_alloc: BufferAllocatorRef::<Storage>::new(ctx.clone()),
-        readback_buffer_alloc: BufferAllocatorRef::<Readback>::new(ctx),
+        readback_buffer_alloc: BufferAllocatorRef::<Readback>::new(ctx.clone()),
+        metadata_arena: MetadataArena::new(ctx, 1024 * 1024 /* 1MB */),
+        grad_store: Mutex::new(GradStore::new()),
     };
 
     RUNTIME

@@ -1,14 +1,11 @@
 use std::{
     collections::{BTreeMap, HashSet},
     marker::PhantomData,
-    sync::{Arc, LazyLock, Mutex, OnceLock, mpsc::channel},
+    sync::{Arc, Mutex, mpsc::channel},
 };
 
 use slotmap::{SlotMap, new_key_type};
-use wgpu::{
-    BufferDescriptor, BufferUsages,
-    util::{BufferInitDescriptor, DeviceExt},
-};
+use wgpu::{BufferDescriptor, BufferUsages};
 
 use crate::runtime::WGPUContext;
 
@@ -136,7 +133,8 @@ impl BufferAllocator {
 
     fn reclaim(&mut self) {
         // Wait for all pending work to be complete
-        self.ctx
+        let _ = self
+            .ctx
             .device
             .poll(wgpu::wgt::PollType::wait_indefinitely());
 
@@ -194,6 +192,10 @@ impl BufferAllocatorRef<usage_marker::Readback> {
             _tag: PhantomData,
         }
     }
+
+    pub fn reclaim(&self) {
+        self.alloc.lock().unwrap().reclaim();
+    }
 }
 
 impl<T: usage_marker::BufferUsageMarker> Clone for BufferAllocatorRef<T> {
@@ -207,6 +209,7 @@ impl<T: usage_marker::BufferUsageMarker> Clone for BufferAllocatorRef<T> {
 }
 
 /// RAII Handle to a wgpu buffer. The buffer is placed in the "pending reuse" queue on the drop of this handle
+#[derive(Debug)]
 pub struct BufferLease<T: usage_marker::BufferUsageMarker> {
     raw: Arc<wgpu::Buffer>,
     buf: BufferId,
@@ -255,7 +258,8 @@ impl BufferLease<usage_marker::Readback> {
                 tx.send(result).unwrap()
             });
 
-        self.alloc
+        let _ = self
+            .alloc
             .ctx
             .device
             .poll(wgpu::PollType::wait_indefinitely());

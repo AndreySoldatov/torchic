@@ -4,19 +4,20 @@ use crate::runtime::WGPUContext;
 
 const ALIGNMENT: u64 = 16;
 
-struct MetadataArena {
+#[derive(Debug)]
+pub struct MetadataArena {
     ctx: WGPUContext,
     buf: wgpu::Buffer,
     cursor: u64,
     capacity: u64,
 }
 
-struct MetdataHandle {
+pub struct MetdataHandle {
     offset: u64,
     size: u64,
 }
 
-enum AllocError {
+pub enum AllocError {
     ArenaExhaustion,
 }
 
