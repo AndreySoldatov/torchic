@@ -19,8 +19,10 @@ pub struct WGPUContext {
 impl WGPUContext {
     pub fn new(adapter: wgpu::Adapter) -> Self {
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Torchic device"),
             required_limits: adapter.limits(),
-            required_features: adapter.features(),
+            required_features: wgpu::Features::empty(),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
             ..Default::default()
         }))
         .expect("This operation should be successfull, maybe there is a problem with your adapter");
@@ -43,7 +45,7 @@ pub(crate) struct Runtime {
     pub(crate) storage_buffer_alloc: BufferAllocatorRef<Storage>,
     pub(crate) readback_buffer_alloc: BufferAllocatorRef<Readback>,
     pub(crate) metadata_arena: MetadataArena,
-    pub(crate) grad_store: Mutex<GradStore>,
+    pub(crate) grad_store: GradStore,
     pub(crate) kernel_registry: Mutex<KernelRegistry>,
 }
 
@@ -57,7 +59,7 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
         storage_buffer_alloc: BufferAllocatorRef::<Storage>::new(ctx.clone()),
         readback_buffer_alloc: BufferAllocatorRef::<Readback>::new(ctx.clone()),
         metadata_arena: MetadataArena::new(ctx.clone(), 1024 * 1024 /* 1MB */),
-        grad_store: Mutex::new(GradStore::new()),
+        grad_store: GradStore::new(),
         kernel_registry: Mutex::new(KernelRegistry::new(ctx)),
     };
 
@@ -68,4 +70,9 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
 
 pub(crate) fn rt() -> Arc<Runtime> {
     RUNTIME.get().unwrap().clone()
+}
+
+pub fn dump_stats() {
+    let rt = rt();
+    println!("{:#?}", rt.storage_buffer_alloc.stats());
 }

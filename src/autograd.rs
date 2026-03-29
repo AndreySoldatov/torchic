@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Mutex,
+};
 
 use crate::{
     ops::{self, OpType},
@@ -36,9 +39,9 @@ pub(crate) fn backward(tensor: Tensor) {
     let topo = topo(tensor.clone());
 
     rt().grad_store
+        .map
         .lock()
         .unwrap()
-        .map
         .insert(tensor.id(), Tensor::ones(tensor.shape().to_vec(), false));
 
     for t in topo {
@@ -55,40 +58,54 @@ pub(crate) fn backward(tensor: Tensor) {
 fn add_backward(out: Tensor, lhs: Tensor, rhs: Tensor) {
     let out_grad = rt()
         .grad_store
+        .map
         .lock()
         .unwrap()
-        .map
         .get(&out.id())
         .unwrap()
         .clone();
 
     if lhs.requires_grad() {
-        rt().grad_store
-            .lock()
-            .unwrap()
-            .acc(lhs.id(), out_grad.clone());
+        rt().grad_store.acc(lhs.id(), out_grad.clone());
     }
     if rhs.requires_grad() {
-        rt().grad_store.lock().unwrap().acc(rhs.id(), out_grad);
+        rt().grad_store.acc(rhs.id(), out_grad);
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct GradStore {
-    pub(crate) map: HashMap<u64, Tensor>,
+    pub(crate) map: Mutex<HashMap<u64, Tensor>>,
+    pub(crate) orphans: Mutex<HashSet<u64>>,
 }
 
 impl GradStore {
     pub(crate) fn new() -> Self {
         Self {
-            map: HashMap::new(),
+            map: Mutex::new(HashMap::new()),
+            orphans: Mutex::new(HashSet::new()),
         }
     }
 
-    pub(crate) fn acc(&mut self, id: u64, t: Tensor) {
+    pub(crate) fn acc(&self, id: u64, t: Tensor) {
         self.map
+            .lock()
+            .unwrap()
             .entry(id)
             .and_modify(|e| *e = ops::add(e, &t).unwrap())
             .or_insert(t);
+    }
+
+    pub(crate) fn cleanup(&self) {
+        let orphans = self.orphans.lock().unwrap().clone();
+        for orphan in orphans {
+            self.map.lock().unwrap().remove(&orphan);
+        }
+
+        self.orphans.lock().unwrap().clear();
+    }
+
+    pub fn add_orphan(&self, id: u64) {
+        self.orphans.lock().unwrap().insert(id);
     }
 }

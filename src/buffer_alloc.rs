@@ -7,7 +7,7 @@ use std::{
 use slotmap::{SlotMap, new_key_type};
 use wgpu::{BufferDescriptor, BufferUsages};
 
-use crate::runtime::WGPUContext;
+use crate::{buffer_alloc::usage_marker::Storage, runtime::WGPUContext};
 
 new_key_type! {
     struct BufferId;
@@ -168,6 +168,27 @@ pub struct BufferAllocatorRef<T: usage_marker::BufferUsageMarker> {
     _tag: PhantomData<T>,
 }
 
+#[derive(Debug)]
+pub struct BufferAllocStats {
+    storage_size: usize,
+    free_size: usize,
+    pending_size: usize,
+}
+impl<T: usage_marker::BufferUsageMarker> BufferAllocatorRef<T> {
+    pub fn stats(&self) -> BufferAllocStats {
+        let alloc = self.alloc.lock().unwrap();
+        BufferAllocStats {
+            storage_size: alloc.store.len(),
+            free_size: alloc.free_pool.iter().fold(0, |acc, v| acc + v.1.len()),
+            pending_size: alloc.pending.len(),
+        }
+    }
+
+    pub fn reclaim(&self) {
+        self.alloc.lock().unwrap().reclaim();
+    }
+}
+
 impl BufferAllocatorRef<usage_marker::Storage> {
     pub fn new(ctx: WGPUContext) -> Self {
         Self {
@@ -191,10 +212,6 @@ impl BufferAllocatorRef<usage_marker::Readback> {
             ctx,
             _tag: PhantomData,
         }
-    }
-
-    pub fn reclaim(&self) {
-        self.alloc.lock().unwrap().reclaim();
     }
 }
 
@@ -249,8 +266,33 @@ impl<T: usage_marker::BufferUsageMarker> Drop for BufferLease<T> {
     }
 }
 
+impl<T: usage_marker::BufferUsageMarker> BufferLease<T> {
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+#[derive(Debug)]
+pub enum DownloadError {
+    IncompatibleSizes,
+}
+
 impl BufferLease<usage_marker::Readback> {
-    pub fn download(&self) -> Vec<u8> {
+    pub fn download(&self, storage: &BufferLease<Storage>) -> Result<Vec<f32>, DownloadError> {
+        if self.size() != storage.size() {
+            return Err(DownloadError::IncompatibleSizes);
+        }
+
+        let mut encoder =
+            self.alloc
+                .ctx
+                .device
+                .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
+                    label: Some("staging buffer copy encoder"),
+                });
+        encoder.copy_buffer_to_buffer(&storage.raw, 0, &self.raw, 0, storage.size);
+        self.alloc.ctx.queue.submit(Some(encoder.finish()));
+
         let (tx, rx) = channel();
 
         self.raw
@@ -266,11 +308,14 @@ impl BufferLease<usage_marker::Readback> {
 
         rx.recv().unwrap().unwrap();
 
-        let bytes = self.raw.get_mapped_range(..self.size).to_vec();
+        let result = {
+            let bytes = self.raw.get_mapped_range(..self.size);
+            bytemuck::cast_slice::<u8, f32>(&bytes).to_vec()
+        };
 
         self.raw.unmap();
 
-        bytes
+        Ok(result)
     }
 }
 
@@ -283,7 +328,7 @@ impl BufferLease<usage_marker::Storage> {
         queue.write_buffer(&self.raw, 0, data);
     }
 
-    pub fn binding(&self) -> wgpu::BindingResource {
+    pub fn binding(&self) -> wgpu::BindingResource<'_> {
         self.raw.as_entire_binding()
     }
 }

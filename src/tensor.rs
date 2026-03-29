@@ -3,6 +3,7 @@ use std::sync::{Arc, atomic::AtomicU64};
 use crate::{
     autograd::{self, GradNode},
     buffer_alloc::{BufferLease, usage_marker::Storage},
+    ops,
     runtime::rt,
 };
 
@@ -19,13 +20,12 @@ pub(crate) struct TensorInner {
     pub(crate) shape: Vec<usize>,
 
     pub(crate) requires_grad: bool,
-    // grad_fn: Option<Box<dyn Fn() + Send + Sync + 'static>>,
     pub(crate) grad_node: Option<GradNode>,
 }
 
 impl Drop for TensorInner {
     fn drop(&mut self) {
-        rt().grad_store.lock().unwrap().map.remove(&self.id);
+        rt().grad_store.add_orphan(self.id);
     }
 }
 
@@ -41,7 +41,7 @@ impl Tensor {
         self.inner.id
     }
 
-    pub(crate) fn buf_binding(&self) -> wgpu::BindingResource {
+    pub(crate) fn buf_binding(&self) -> wgpu::BindingResource<'_> {
         self.inner.buf.binding()
     }
 
@@ -86,20 +86,30 @@ impl Tensor {
         Self::new(shape, &data, requires_grad)
     }
 
-    fn grad(&self) -> Option<Self> {
+    pub fn grad(&self) -> Option<Self> {
         rt().grad_store
+            .map
             .lock()
             .unwrap()
-            .map
             .get(&self.inner.id)
             .map(|t| t.clone())
     }
 
     pub fn backward(&self) {
         autograd::backward(self.clone());
+        rt().grad_store.cleanup();
+        rt().storage_buffer_alloc.reclaim();
+        rt().readback_buffer_alloc.reclaim();
     }
 
-    pub fn to_shape_and_vec(self) -> (Vec<usize>, Vec<f32>) {
-        todo!()
+    pub fn to_vec(&self) -> Vec<f32> {
+        let staging = rt().readback_buffer_alloc.request(self.bsize() as u64);
+        staging.download(&self.inner.buf).unwrap()
+    }
+}
+
+impl Tensor {
+    pub fn add(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
+        ops::add(self, other)
     }
 }
