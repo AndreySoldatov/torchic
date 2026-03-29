@@ -1,19 +1,15 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{LazyLock, Mutex},
+use std::collections::{HashMap, HashSet};
+
+use crate::{
+    ops::{self, OpType},
+    runtime::rt,
+    tensor::Tensor,
 };
-
-use crate::{ops, runtime::rt, tensor::Tensor};
-
-#[derive(Debug)]
-pub enum OpType {
-    Add,
-}
 
 #[derive(Debug)]
 pub(crate) struct GradNode {
-    op: OpType,
-    parents: Vec<Tensor>,
+    pub(crate) op: OpType,
+    pub(crate) parents: Vec<Tensor>,
 }
 
 fn topo_recursive(tensor: Tensor, result: &mut Vec<Tensor>, visited: &mut HashSet<u64>) {
@@ -92,10 +88,7 @@ impl GradStore {
     pub(crate) fn acc(&mut self, id: u64, t: Tensor) {
         self.map
             .entry(id)
-            .and_modify(|e| *e = ops::add(e, &t))
+            .and_modify(|e| *e = ops::add(e, &t).unwrap())
             .or_insert(t);
     }
 }
-
-// pub(crate) static GRAD_STORE: LazyLock<Mutex<GradStore>> =
-//     LazyLock::new(|| Mutex::new(GradStore::new()));

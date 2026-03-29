@@ -282,4 +282,8 @@ impl BufferLease<usage_marker::Storage> {
 
         queue.write_buffer(&self.raw, 0, data);
     }
+
+    pub fn binding(&self) -> wgpu::BindingResource {
+        self.raw.as_entire_binding()
+    }
 }

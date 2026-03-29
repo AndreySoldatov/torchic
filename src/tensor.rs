@@ -6,19 +6,19 @@ use crate::{
     runtime::rt,
 };
 
-static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+static TENSOR_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn get_id() -> u64 {
-    ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+pub(crate) fn get_tensor_id() -> u64 {
+    TENSOR_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Debug)]
 pub(crate) struct TensorInner {
-    id: u64,
-    buf: BufferLease<Storage>,
-    shape: Vec<usize>,
+    pub(crate) id: u64,
+    pub(crate) buf: BufferLease<Storage>,
+    pub(crate) shape: Vec<usize>,
 
-    requires_grad: bool,
+    pub(crate) requires_grad: bool,
     // grad_fn: Option<Box<dyn Fn() + Send + Sync + 'static>>,
     pub(crate) grad_node: Option<GradNode>,
 }
@@ -39,6 +39,14 @@ const DTYPE_SIZE: usize = 4;
 impl Tensor {
     pub(crate) fn id(&self) -> u64 {
         self.inner.id
+    }
+
+    pub(crate) fn buf_binding(&self) -> wgpu::BindingResource {
+        self.inner.buf.binding()
+    }
+
+    pub(crate) fn bsize(&self) -> usize {
+        self.inner.shape.iter().product::<usize>() * DTYPE_SIZE
     }
 }
 
@@ -62,7 +70,7 @@ impl Tensor {
 
         Self {
             inner: Arc::new(TensorInner {
-                id: get_id(),
+                id: get_tensor_id(),
                 shape,
                 requires_grad,
                 buf,
@@ -72,8 +80,8 @@ impl Tensor {
     }
 
     pub fn ones(shape: Vec<usize>, requires_grad: bool) -> Self {
-        let bsize = shape.iter().product();
-        let data = vec![1.0; bsize];
+        let size = shape.iter().product();
+        let data = vec![1.0; size];
 
         Self::new(shape, &data, requires_grad)
     }

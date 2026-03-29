@@ -6,8 +6,8 @@ use crate::{
         BufferAllocatorRef,
         usage_marker::{Readback, Storage},
     },
+    kernel_registry::KernelRegistry,
     metadata_arena::MetadataArena,
-    tensor::Tensor,
 };
 
 #[derive(Debug, Clone)]
@@ -44,6 +44,7 @@ pub(crate) struct Runtime {
     pub(crate) readback_buffer_alloc: BufferAllocatorRef<Readback>,
     pub(crate) metadata_arena: MetadataArena,
     pub(crate) grad_store: Mutex<GradStore>,
+    pub(crate) kernel_registry: Mutex<KernelRegistry>,
 }
 
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
@@ -55,8 +56,9 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
         ctx: ctx.clone(),
         storage_buffer_alloc: BufferAllocatorRef::<Storage>::new(ctx.clone()),
         readback_buffer_alloc: BufferAllocatorRef::<Readback>::new(ctx.clone()),
-        metadata_arena: MetadataArena::new(ctx, 1024 * 1024 /* 1MB */),
+        metadata_arena: MetadataArena::new(ctx.clone(), 1024 * 1024 /* 1MB */),
         grad_store: Mutex::new(GradStore::new()),
+        kernel_registry: Mutex::new(KernelRegistry::new(ctx)),
     };
 
     RUNTIME
