@@ -93,6 +93,9 @@ impl KernelRegistry {
                     BinopEwizeType::Add => {
                         variables.insert("operation", "output[idx] = input1[idx] + input2[idx];");
                     }
+                    BinopEwizeType::Mul => {
+                        variables.insert("operation", "output[idx] = input1[idx] * input2[idx];");
+                    }
                     _ => {
                         todo!()
                     }

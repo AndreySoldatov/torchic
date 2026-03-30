@@ -7,12 +7,11 @@ fn main() {
     let adapter = WGPUContext::list_adapters().into_iter().nth(0).unwrap();
     init_runtime(adapter);
 
-    for i in 0..10 {
-        let t1 = Tensor::new(vec![200000000], &[1.0; 200000000], true);
-        let t2 = Tensor::new(vec![200000000], &[1.0; 200000000], true);
-        let res = t1.add(&t2).unwrap();
-        res.backward();
-        println!("{}", i);
-    }
-    dump_stats();
+    let t1 = Tensor::new(vec![4], &[1.0, 2.0, 3.0, 4.0], true);
+    let t2 = Tensor::new(vec![4], &[10.0, 10.0, 10.0, 10.0], true);
+    let res = t1.mul(&t2).unwrap().add(&t2).unwrap().mul(&t1).unwrap();
+    res.backward();
+
+    println!("{:?}", res.to_vec());
+    println!("{:?}", t2.grad().unwrap().to_vec());
 }

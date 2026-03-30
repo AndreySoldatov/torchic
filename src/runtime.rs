@@ -69,7 +69,7 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
 }
 
 pub(crate) fn rt() -> Arc<Runtime> {
-    RUNTIME.get().unwrap().clone()
+    RUNTIME.get().expect("Runtime is not initialized! Initialize runtime with torchic::runtime::init_runtime(adapter)").clone()
 }
 
 pub fn dump_stats() {

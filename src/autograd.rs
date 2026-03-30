@@ -49,6 +49,7 @@ pub(crate) fn backward(tensor: &Tensor) {
             match &n.op {
                 OpType::BinopEwizeType(btype) => match btype {
                     ops::BinopEwizeType::Add => add_backward(&t, &n.parents[0], &n.parents[1]),
+                    ops::BinopEwizeType::Mul => mul_backward(&t, &n.parents[0], &n.parents[1]),
                     _ => {
                         todo!()
                     }
@@ -69,10 +70,30 @@ fn add_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
         .clone();
 
     if lhs.requires_grad() {
-        rt().grad_store.acc(lhs.id(), out_grad.clone());
+        rt().grad_store.acc(lhs.id(), &out_grad);
     }
     if rhs.requires_grad() {
-        rt().grad_store.acc(rhs.id(), out_grad);
+        rt().grad_store.acc(rhs.id(), &out_grad);
+    }
+}
+
+fn mul_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
+    let out_grad = rt()
+        .grad_store
+        .map
+        .lock()
+        .unwrap()
+        .get(&out.id())
+        .unwrap()
+        .clone();
+
+    if lhs.requires_grad() {
+        rt().grad_store
+            .acc(lhs.id(), &ops::mul(&out_grad, rhs, true).unwrap());
+    }
+    if rhs.requires_grad() {
+        rt().grad_store
+            .acc(rhs.id(), &ops::mul(&out_grad, lhs, true).unwrap());
     }
 }
 
@@ -90,13 +111,13 @@ impl GradStore {
         }
     }
 
-    pub(crate) fn acc(&self, id: u64, t: Tensor) {
+    pub(crate) fn acc(&self, id: u64, t: &Tensor) {
         self.map
             .lock()
             .unwrap()
             .entry(id)
-            .and_modify(|e| *e = ops::add(e, &t).unwrap())
-            .or_insert(t);
+            .and_modify(|e| *e = ops::add(e, t, true).unwrap())
+            .or_insert(t.clone());
     }
 
     pub(crate) fn cleanup(&self) {
@@ -110,17 +131,5 @@ impl GradStore {
 
     pub fn add_orphan(&self, id: u64) {
         self.orphans.lock().unwrap().insert(id);
-    }
-}
-
-pub(crate) fn create_grad_node(lhs: &Tensor, rhs: &Tensor, op: OpType) -> Option<GradNode> {
-    let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-    if requires_grad {
-        Some(GradNode {
-            op,
-            parents: vec![lhs.clone(), rhs.clone()],
-        })
-    } else {
-        None
     }
 }

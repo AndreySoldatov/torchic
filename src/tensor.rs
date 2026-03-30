@@ -110,6 +110,10 @@ impl Tensor {
 
 impl Tensor {
     pub fn add(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
-        ops::add(self, other)
+        ops::add(self, other, false)
+    }
+
+    pub fn mul(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
+        ops::mul(self, other, false)
     }
 }
