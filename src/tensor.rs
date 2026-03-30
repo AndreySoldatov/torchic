@@ -96,7 +96,7 @@ impl Tensor {
     }
 
     pub fn backward(&self) {
-        autograd::backward(self.clone());
+        autograd::backward(self);
         rt().grad_store.cleanup();
         rt().storage_buffer_alloc.reclaim();
         rt().readback_buffer_alloc.reclaim();

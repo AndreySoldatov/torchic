@@ -1,6 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{ops::OpType, runtime::WGPUContext};
+use crate::{
+    ops::{BinopEwizeType, OpType},
+    runtime::WGPUContext,
+};
 
 #[derive(Debug)]
 pub struct KernelEntry {
@@ -82,9 +85,21 @@ impl KernelRegistry {
     }
 
     fn load_known(&mut self, key: &KernelKey) {
-        match key.op {
-            OpType::Add => {
-                self.load_with_source(key, include_str!("shader_templates/add_e_c.wgsl"))
+        match &key.op {
+            OpType::BinopEwizeType(typ) => {
+                let template_base = include_str!("shader_templates/binop_ewize/binop_ewize.wgsl");
+                let mut variables = HashMap::new();
+                match typ {
+                    BinopEwizeType::Add => {
+                        variables.insert("operation", "output[idx] = input1[idx] + input2[idx];");
+                    }
+                    _ => {
+                        todo!()
+                    }
+                }
+                let src = subst::substitute(template_base, &variables)
+                    .expect("Shader template not substituted correcty!");
+                self.load_with_source(key, &src);
             }
         }
     }
@@ -100,11 +115,11 @@ impl KernelRegistry {
 
 fn op_to_bgl(op: &OpType, device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     match op {
-        OpType::Add => add_bgl(device),
+        OpType::BinopEwizeType(_) => binop_ewize_bgl(device),
     }
 }
 
-fn add_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
+fn binop_ewize_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Add bgl"),
         entries: &[

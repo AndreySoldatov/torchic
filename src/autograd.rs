@@ -15,18 +15,18 @@ pub(crate) struct GradNode {
     pub(crate) parents: Vec<Tensor>,
 }
 
-fn topo_recursive(tensor: Tensor, result: &mut Vec<Tensor>, visited: &mut HashSet<u64>) {
+fn topo_recursive(tensor: &Tensor, result: &mut Vec<Tensor>, visited: &mut HashSet<u64>) {
     if visited.insert(tensor.id()) {
         result.push(tensor.clone());
         if let Some(n) = &tensor.inner.grad_node {
             for parent in &n.parents {
-                topo_recursive(parent.clone(), result, visited);
+                topo_recursive(parent, result, visited);
             }
         }
     }
 }
 
-fn topo(tensor: Tensor) -> Vec<Tensor> {
+fn topo(tensor: &Tensor) -> Vec<Tensor> {
     let mut result = vec![];
     let mut visited: HashSet<u64> = HashSet::new();
 
@@ -35,8 +35,8 @@ fn topo(tensor: Tensor) -> Vec<Tensor> {
     return result;
 }
 
-pub(crate) fn backward(tensor: Tensor) {
-    let topo = topo(tensor.clone());
+pub(crate) fn backward(tensor: &Tensor) {
+    let topo = topo(&tensor);
 
     rt().grad_store
         .map
@@ -46,16 +46,19 @@ pub(crate) fn backward(tensor: Tensor) {
 
     for t in topo {
         if let Some(n) = &t.inner.grad_node {
-            match n.op {
-                OpType::Add => {
-                    add_backward(t.clone(), n.parents[0].clone(), n.parents[1].clone());
-                }
+            match &n.op {
+                OpType::BinopEwizeType(btype) => match btype {
+                    ops::BinopEwizeType::Add => add_backward(&t, &n.parents[0], &n.parents[1]),
+                    _ => {
+                        todo!()
+                    }
+                },
             }
         }
     }
 }
 
-fn add_backward(out: Tensor, lhs: Tensor, rhs: Tensor) {
+fn add_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     let out_grad = rt()
         .grad_store
         .map
@@ -107,5 +110,17 @@ impl GradStore {
 
     pub fn add_orphan(&self, id: u64) {
         self.orphans.lock().unwrap().insert(id);
+    }
+}
+
+pub(crate) fn create_grad_node(lhs: &Tensor, rhs: &Tensor, op: OpType) -> Option<GradNode> {
+    let requires_grad = lhs.requires_grad() || rhs.requires_grad();
+    if requires_grad {
+        Some(GradNode {
+            op,
+            parents: vec![lhs.clone(), rhs.clone()],
+        })
+    } else {
+        None
     }
 }

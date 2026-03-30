@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    autograd::GradNode,
+    autograd::{GradNode, create_grad_node},
+    buffer_alloc::{BufferLease, usage_marker::Storage},
     kernel_registry::KernelKey,
     runtime::rt,
     tensor::{Tensor, TensorInner, get_tensor_id},
@@ -9,7 +10,15 @@ use crate::{
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
 pub enum OpType {
+    BinopEwizeType(BinopEwizeType),
+}
+
+#[derive(Debug, Eq, Hash, PartialEq, Clone)]
+pub enum BinopEwizeType {
     Add,
+    Mul,
+    Sub,
+    Div,
 }
 
 #[derive(Debug)]
@@ -18,17 +27,33 @@ pub enum TensorOpError {
 }
 
 pub fn add(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
+    let buf = dispatch_binop_ewize(lhs, rhs, BinopEwizeType::Add)?;
+
+    Ok(Tensor {
+        inner: Arc::new(TensorInner {
+            id: get_tensor_id(),
+            buf,
+            shape: lhs.shape().to_vec(),
+            requires_grad: lhs.requires_grad() || rhs.requires_grad(),
+            grad_node: create_grad_node(lhs, rhs, OpType::BinopEwizeType(BinopEwizeType::Add)),
+        }),
+    })
+}
+
+pub fn dispatch_binop_ewize(
+    lhs: &Tensor,
+    rhs: &Tensor,
+    typ: BinopEwizeType,
+) -> Result<BufferLease<Storage>, TensorOpError> {
     if lhs.shape() != rhs.shape() {
         return Err(TensorOpError::MismatchedShapes);
     }
 
     let rt = rt();
 
-    let kernel = rt
-        .kernel_registry
-        .lock()
-        .unwrap()
-        .get(&KernelKey { op: OpType::Add });
+    let kernel = rt.kernel_registry.lock().unwrap().get(&KernelKey {
+        op: OpType::BinopEwizeType(typ),
+    });
 
     let out_buf = rt.storage_buffer_alloc.request(lhs.bsize() as u64);
 
@@ -66,7 +91,7 @@ pub fn add(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
     compute_pass.set_pipeline(kernel.pipeline());
     compute_pass.set_bind_group(0, &bg, &[]);
     compute_pass.dispatch_workgroups(
-        lhs.shape().iter().product::<usize>().div_ceil(64) as u32,
+        (lhs.shape().iter().product::<usize>().div_ceil(64) as u32).min(65535),
         1,
         1,
     );
@@ -75,23 +100,5 @@ pub fn add(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
 
     rt.ctx.queue.submit(Some(encoder.finish()));
 
-    let requires_grad = lhs.requires_grad() || rhs.requires_grad();
-    let grad_node = if requires_grad {
-        Some(GradNode {
-            op: OpType::Add,
-            parents: vec![lhs.clone(), rhs.clone()],
-        })
-    } else {
-        None
-    };
-
-    Ok(Tensor {
-        inner: Arc::new(TensorInner {
-            id: get_tensor_id(),
-            buf: out_buf,
-            shape: lhs.shape().to_vec(),
-            requires_grad,
-            grad_node,
-        }),
-    })
+    Ok(out_buf)
 }
