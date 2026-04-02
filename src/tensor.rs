@@ -34,7 +34,7 @@ pub struct Tensor {
     pub(crate) inner: Arc<TensorInner>,
 }
 
-const DTYPE_SIZE: usize = 4;
+pub const DTYPE_SIZE: usize = 4;
 
 impl Tensor {
     pub(crate) fn id(&self) -> u64 {
@@ -46,7 +46,7 @@ impl Tensor {
     }
 
     pub(crate) fn bsize(&self) -> usize {
-        self.inner.shape.iter().product::<usize>() * DTYPE_SIZE
+        self.numel() * DTYPE_SIZE
     }
 }
 
@@ -58,10 +58,14 @@ impl Tensor {
     pub fn requires_grad(&self) -> bool {
         self.inner.requires_grad
     }
+
+    pub fn numel(&self) -> usize {
+        self.inner.shape.iter().product::<usize>()
+    }
 }
 
 impl Tensor {
-    pub fn new(shape: Vec<usize>, data: &[f32], requires_grad: bool) -> Self {
+    pub fn new(shape: &[usize], data: &[f32], requires_grad: bool) -> Self {
         let bsize = shape.iter().product::<usize>() * DTYPE_SIZE;
 
         let rt = rt();
@@ -71,7 +75,7 @@ impl Tensor {
         Self {
             inner: Arc::new(TensorInner {
                 id: get_tensor_id(),
-                shape,
+                shape: shape.to_vec(),
                 requires_grad,
                 buf,
                 grad_node: None,
@@ -79,7 +83,7 @@ impl Tensor {
         }
     }
 
-    pub fn ones(shape: Vec<usize>, requires_grad: bool) -> Self {
+    pub fn ones(shape: &[usize], requires_grad: bool) -> Self {
         let size = shape.iter().product();
         let data = vec![1.0; size];
 
@@ -115,5 +119,9 @@ impl Tensor {
 
     pub fn mul(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
         ops::mul(self, other, false)
+    }
+
+    pub fn sum(&self) -> Result<Tensor, ops::TensorOpError> {
+        ops::sum(self)
     }
 }

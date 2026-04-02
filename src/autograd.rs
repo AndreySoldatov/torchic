@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ops::{self, OpType},
+    ops::{self, OpType, ReduceOpType},
     runtime::rt,
     tensor::Tensor,
 };
@@ -42,7 +42,7 @@ pub(crate) fn backward(tensor: &Tensor) {
         .map
         .lock()
         .unwrap()
-        .insert(tensor.id(), Tensor::ones(tensor.shape().to_vec(), false));
+        .insert(tensor.id(), Tensor::ones(tensor.shape(), false));
 
     for t in topo {
         if let Some(n) = &t.inner.grad_node {
@@ -50,9 +50,9 @@ pub(crate) fn backward(tensor: &Tensor) {
                 OpType::BinopEwizeType(btype) => match btype {
                     ops::BinopEwizeType::Add => add_backward(&t, &n.parents[0], &n.parents[1]),
                     ops::BinopEwizeType::Mul => mul_backward(&t, &n.parents[0], &n.parents[1]),
-                    _ => {
-                        todo!()
-                    }
+                },
+                OpType::Reduce(red) => match red {
+                    ReduceOpType::Sum => sum_backward(&t, &n.parents[0]),
                 },
             }
         }
@@ -94,6 +94,26 @@ fn mul_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     if rhs.requires_grad() {
         rt().grad_store
             .acc(rhs.id(), &ops::mul(&out_grad, lhs, true).unwrap());
+    }
+}
+
+fn sum_backward(out: &Tensor, p: &Tensor) {
+    if p.requires_grad() {
+        let out_grad = rt()
+            .grad_store
+            .map
+            .lock()
+            .unwrap()
+            .get(&out.id())
+            .unwrap()
+            .clone();
+
+        let grad_scal = out_grad.to_vec()[0];
+
+        rt().grad_store.acc(
+            p.id(),
+            &Tensor::new(p.shape(), &vec![grad_scal; p.numel()], false),
+        );
     }
 }
 

@@ -104,6 +104,9 @@ impl KernelRegistry {
                     .expect("Shader template not substituted correcty!");
                 self.load_with_source(key, &src);
             }
+            OpType::Reduce(_) => {
+                self.load_with_source(key, include_str!("shader_templates/sum.wgsl"));
+            }
         }
     }
 
@@ -119,12 +122,13 @@ impl KernelRegistry {
 fn op_to_bgl(op: &OpType, device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     match op {
         OpType::BinopEwizeType(_) => binop_ewize_bgl(device),
+        OpType::Reduce(_) => reduce_bgl(device),
     }
 }
 
 fn binop_ewize_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Add bgl"),
+        label: Some("binop ewize bgl"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -148,6 +152,34 @@ fn binop_ewize_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+fn reduce_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Reduce bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
