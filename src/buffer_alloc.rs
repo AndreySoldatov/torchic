@@ -132,6 +132,10 @@ impl BufferAllocator {
     }
 
     fn reclaim(&mut self) {
+        if self.pending.is_empty() {
+            return;
+        }
+
         // Wait for all pending work to be complete
         let _ = self
             .ctx

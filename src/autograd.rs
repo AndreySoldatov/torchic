@@ -141,6 +141,10 @@ impl GradStore {
     }
 
     pub(crate) fn cleanup(&self) {
+        if self.orphans.lock().unwrap().is_empty() {
+            return;
+        }
+
         let orphans = self.orphans.lock().unwrap().clone();
         for orphan in orphans {
             self.map.lock().unwrap().remove(&orphan);

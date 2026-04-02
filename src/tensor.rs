@@ -108,7 +108,13 @@ impl Tensor {
 
     pub fn to_vec(&self) -> Vec<f32> {
         let staging = rt().readback_buffer_alloc.request(self.bsize() as u64);
-        staging.download(&self.inner.buf).unwrap()
+        let res = staging.download(&self.inner.buf).unwrap();
+
+        rt().grad_store.cleanup();
+        rt().storage_buffer_alloc.reclaim();
+        rt().readback_buffer_alloc.reclaim();
+
+        res
     }
 }
 
