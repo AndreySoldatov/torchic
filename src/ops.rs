@@ -4,8 +4,7 @@ use wgpu::BindGroupDescriptor;
 
 use crate::{
     autograd::GradNode,
-    buffer_alloc::{BufferLease, usage_marker::Storage},
-    kernel_registry::{self, KernelKey},
+    kernel_registry::KernelKey,
     runtime::rt,
     tensor::{DTYPE_SIZE, Tensor, TensorInner, get_tensor_id},
 };

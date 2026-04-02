@@ -96,9 +96,6 @@ impl KernelRegistry {
                     BinopEwizeType::Mul => {
                         variables.insert("operation", "output[idx] = input1[idx] * input2[idx];");
                     }
-                    _ => {
-                        todo!()
-                    }
                 }
                 let src = subst::substitute(template_base, &variables)
                     .expect("Shader template not substituted correcty!");

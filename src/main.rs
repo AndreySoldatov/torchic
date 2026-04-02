@@ -1,5 +1,5 @@
 use torchic::{
-    runtime::{WGPUContext, dump_stats, init_runtime},
+    runtime::{WGPUContext, init_runtime},
     tensor::Tensor,
 };
 
