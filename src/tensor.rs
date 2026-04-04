@@ -4,7 +4,7 @@ use crate::{
     autograd::{self, GradNode},
     buffer_alloc::{BufferLease, usage_marker::Storage},
     ops,
-    runtime::rt,
+    runtime::{cleanup, rt},
 };
 
 static TENSOR_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -101,18 +101,14 @@ impl Tensor {
 
     pub fn backward(&self) {
         autograd::backward(self);
-        rt().grad_store.cleanup();
-        rt().storage_buffer_alloc.reclaim();
-        rt().readback_buffer_alloc.reclaim();
+        cleanup();
     }
 
     pub fn to_vec(&self) -> Vec<f32> {
         let staging = rt().readback_buffer_alloc.request(self.bsize() as u64);
         let res = staging.download(&self.inner.buf).unwrap();
 
-        rt().grad_store.cleanup();
-        rt().storage_buffer_alloc.reclaim();
-        rt().readback_buffer_alloc.reclaim();
+        cleanup();
 
         res
     }
@@ -120,14 +116,22 @@ impl Tensor {
 
 impl Tensor {
     pub fn add(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
-        ops::add(self, other, false)
+        ops::add(self, other)
     }
 
     pub fn mul(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
-        ops::mul(self, other, false)
+        ops::mul(self, other)
     }
 
     pub fn sum(&self) -> Result<Tensor, ops::TensorOpError> {
         ops::sum(self)
+    }
+
+    pub fn matmul(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
+        ops::matmul(self, other)
+    }
+
+    pub fn transpose(&self) -> Result<Tensor, ops::TensorOpError> {
+        ops::transpose(self)
     }
 }

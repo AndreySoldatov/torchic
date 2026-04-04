@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     ops::{self, OpType, ReduceOpType},
-    runtime::rt,
+    runtime::{no_grad, rt},
     tensor::Tensor,
 };
 
@@ -37,6 +37,7 @@ fn topo(tensor: &Tensor) -> Vec<Tensor> {
 
 pub(crate) fn backward(tensor: &Tensor) {
     let topo = topo(&tensor);
+    let _ng = no_grad().unwrap();
 
     rt().grad_store
         .map
@@ -46,29 +47,35 @@ pub(crate) fn backward(tensor: &Tensor) {
 
     for t in topo {
         if let Some(n) = &t.inner.grad_node {
+            let out_grad = rt()
+                .grad_store
+                .map
+                .lock()
+                .unwrap()
+                .get(&t.id())
+                .unwrap()
+                .clone();
+
             match &n.op {
                 OpType::BinopEwizeType(btype) => match btype {
-                    ops::BinopEwizeType::Add => add_backward(&t, &n.parents[0], &n.parents[1]),
-                    ops::BinopEwizeType::Mul => mul_backward(&t, &n.parents[0], &n.parents[1]),
+                    ops::BinopEwizeType::Add => {
+                        add_backward(&out_grad, &n.parents[0], &n.parents[1])
+                    }
+                    ops::BinopEwizeType::Mul => {
+                        mul_backward(&out_grad, &n.parents[0], &n.parents[1])
+                    }
                 },
                 OpType::Reduce(red) => match red {
-                    ReduceOpType::Sum => sum_backward(&t, &n.parents[0]),
+                    ReduceOpType::Sum => sum_backward(&out_grad, &n.parents[0]),
                 },
+                OpType::Transpose => transpose_backward(&out_grad, &n.parents[0]),
+                OpType::Matmul => matmul_backward(&out_grad, &n.parents[0], &n.parents[1]),
             }
         }
     }
 }
 
-fn add_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
-    let out_grad = rt()
-        .grad_store
-        .map
-        .lock()
-        .unwrap()
-        .get(&out.id())
-        .unwrap()
-        .clone();
-
+fn add_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     if lhs.requires_grad() {
         rt().grad_store.acc(lhs.id(), &out_grad);
     }
@@ -77,42 +84,46 @@ fn add_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     }
 }
 
-fn mul_backward(out: &Tensor, lhs: &Tensor, rhs: &Tensor) {
-    let out_grad = rt()
-        .grad_store
-        .map
-        .lock()
-        .unwrap()
-        .get(&out.id())
-        .unwrap()
-        .clone();
-
+fn mul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     if lhs.requires_grad() {
         rt().grad_store
-            .acc(lhs.id(), &ops::mul(&out_grad, rhs, true).unwrap());
+            .acc(lhs.id(), &ops::mul(&out_grad, rhs).unwrap());
     }
     if rhs.requires_grad() {
         rt().grad_store
-            .acc(rhs.id(), &ops::mul(&out_grad, lhs, true).unwrap());
+            .acc(rhs.id(), &ops::mul(&out_grad, lhs).unwrap());
     }
 }
 
-fn sum_backward(out: &Tensor, p: &Tensor) {
+fn sum_backward(out_grad: &Tensor, p: &Tensor) {
     if p.requires_grad() {
-        let out_grad = rt()
-            .grad_store
-            .map
-            .lock()
-            .unwrap()
-            .get(&out.id())
-            .unwrap()
-            .clone();
-
         let grad_scal = out_grad.to_vec()[0];
 
         rt().grad_store.acc(
             p.id(),
             &Tensor::new(p.shape(), &vec![grad_scal; p.numel()], false),
+        );
+    }
+}
+
+fn transpose_backward(out_grad: &Tensor, p: &Tensor) {
+    if p.requires_grad() {
+        rt().grad_store
+            .acc(p.id(), &ops::transpose(out_grad).unwrap());
+    }
+}
+
+fn matmul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
+    if lhs.requires_grad() {
+        rt().grad_store.acc(
+            lhs.id(),
+            &ops::matmul(out_grad, &ops::transpose(rhs).unwrap()).unwrap(),
+        );
+    }
+    if rhs.requires_grad() {
+        rt().grad_store.acc(
+            rhs.id(),
+            &ops::matmul(&ops::transpose(lhs).unwrap(), out_grad).unwrap(),
         );
     }
 }
@@ -136,7 +147,7 @@ impl GradStore {
             .lock()
             .unwrap()
             .entry(id)
-            .and_modify(|e| *e = ops::add(e, t, true).unwrap())
+            .and_modify(|e| *e = ops::add(e, t).unwrap())
             .or_insert(t.clone());
     }
 

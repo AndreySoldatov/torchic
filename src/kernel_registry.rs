@@ -104,6 +104,12 @@ impl KernelRegistry {
             OpType::Reduce(_) => {
                 self.load_with_source(key, include_str!("shader_templates/sum.wgsl"));
             }
+            OpType::Matmul => {
+                self.load_with_source(key, include_str!("shader_templates/matmul.wgsl"));
+            }
+            OpType::Transpose => {
+                self.load_with_source(key, include_str!("shader_templates/transpose.wgsl"));
+            }
         }
     }
 
@@ -120,71 +126,53 @@ fn op_to_bgl(op: &OpType, device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     match op {
         OpType::BinopEwizeType(_) => binop_ewize_bgl(device),
         OpType::Reduce(_) => reduce_bgl(device),
+        OpType::Matmul => matmul_bgl(device),
+        OpType::Transpose => transpose_bgl(device),
     }
 }
 
 fn binop_ewize_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("binop ewize bgl"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
+        entries: &[entry(0, true), entry(1, true), entry(2, false)],
     })
 }
 
 fn reduce_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Reduce bgl"),
+        entries: &[entry(0, true), entry(1, false)],
+    })
+}
+
+fn matmul_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("matmul bgl"),
         entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
+            entry(0, true),
+            entry(1, true),
+            entry(2, false),
+            entry(3, true),
         ],
     })
+}
+
+fn transpose_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("transpose bgl"),
+        entries: &[entry(0, true), entry(1, false), entry(2, true)],
+    })
+}
+
+fn entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
 }

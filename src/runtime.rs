@@ -44,9 +44,10 @@ pub(crate) struct Runtime {
     pub(crate) ctx: WGPUContext,
     pub(crate) storage_buffer_alloc: BufferAllocatorRef<Storage>,
     pub(crate) readback_buffer_alloc: BufferAllocatorRef<Readback>,
-    pub(crate) metadata_arena: MetadataArena,
+    pub(crate) metadata_arena: Mutex<MetadataArena>,
     pub(crate) grad_store: GradStore,
     pub(crate) kernel_registry: Mutex<KernelRegistry>,
+    pub(crate) do_grad: Mutex<bool>,
 }
 
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
@@ -58,9 +59,10 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
         ctx: ctx.clone(),
         storage_buffer_alloc: BufferAllocatorRef::<Storage>::new(ctx.clone()),
         readback_buffer_alloc: BufferAllocatorRef::<Readback>::new(ctx.clone()),
-        metadata_arena: MetadataArena::new(ctx.clone(), 1024 * 1024 /* 1MB */),
+        metadata_arena: Mutex::new(MetadataArena::new(ctx.clone(), 1024 * 1024 /* 1MB */)),
         grad_store: GradStore::new(),
         kernel_registry: Mutex::new(KernelRegistry::new(ctx)),
+        do_grad: Mutex::new(true),
     };
 
     RUNTIME
@@ -75,4 +77,42 @@ pub(crate) fn rt() -> Arc<Runtime> {
 pub fn dump_stats() {
     let rt = rt();
     println!("{:#?}", rt.storage_buffer_alloc.stats());
+}
+
+pub struct NoGradGuard(bool);
+
+#[derive(Debug)]
+pub enum GradGuardError {
+    AlreadyDisabled,
+}
+
+impl Drop for NoGradGuard {
+    fn drop(&mut self) {
+        *rt().do_grad.lock().unwrap() = self.0;
+    }
+}
+
+pub fn no_grad() -> Result<NoGradGuard, GradGuardError> {
+    let rt = rt();
+    let mut do_grad = rt.do_grad.lock().unwrap();
+
+    if !*do_grad {
+        return Err(GradGuardError::AlreadyDisabled);
+    }
+
+    let gl = NoGradGuard(*do_grad);
+    *do_grad = false;
+
+    Ok(gl)
+}
+
+pub(crate) fn do_grad() -> bool {
+    *rt().do_grad.lock().unwrap()
+}
+
+pub(crate) fn cleanup() {
+    rt().grad_store.cleanup();
+    rt().storage_buffer_alloc.reclaim();
+    rt().readback_buffer_alloc.reclaim();
+    rt().metadata_arena.lock().unwrap().reset();
 }

@@ -1,27 +1,23 @@
-struct Matrix {
-  data: array<f32>,
-};
-
 struct Params {
   M: u32,
   N: u32,
   K: u32,
 };
 
-@group(0) @binding(0) var<storage, read> A: Matrix;
-@group(0) @binding(1) var<storage, read> B: Matrix;
-@group(0) @binding(2) var<storage, read_write> C: Matrix;
-@group(0) @binding(3) var<uniform> p: Params;
-
-const BM: u32 = 64u;
-const BN: u32 = 64u;
-const BK: u32 = 16u;
+@group(0) @binding(0) var<storage, read> A: array<f32>;
+@group(0) @binding(1) var<storage, read> B: array<f32>;
+@group(0) @binding(2) var<storage, read_write> C: array<f32>;
+@group(0) @binding(3) var<storage, read> p: Params;
 
 const WG_X: u32 = 8u;
 const WG_Y: u32 = 8u;
 
 const TM: u32 = 4u;
 const TN: u32 = 4u;
+
+const BM: u32 = WG_Y * TM;
+const BN: u32 = WG_X * TN;
+const BK: u32 = 16u;
 
 var<workgroup> As: array<f32, BM * BK>;
 var<workgroup> Bs: array<f32, BK * BN>;
@@ -70,7 +66,7 @@ fn main(
       let gr = block_row + r;
       let gc = k0 + c;
 
-      As[idx] = select(0.0, A.data[a_index(gr, gc)], gr < p.M && gc < p.K);
+      As[idx] = select(0.0, A[a_index(gr, gc)], gr < p.M && gc < p.K);
     }
 
     for (var t = 0u; t < num_b_loads; t++) {
@@ -81,7 +77,7 @@ fn main(
       let gr = k0 + r;
       let gc = block_col + c;
 
-      Bs[idx] = select(0.0, B.data[b_index(gr, gc)], gr < p.K && gc < p.N);
+      Bs[idx] = select(0.0, B[b_index(gr, gc)], gr < p.K && gc < p.N);
     }
 
     workgroupBarrier();
@@ -117,7 +113,7 @@ fn main(
     for (var j = 0u; j < TN; j++) {
       let gc = block_col + thread_col_base + j;
       if (gc >= p.N) { continue; }
-      C.data[c_index(gr, gc)] = acc[i][j];
+      C[c_index(gr, gc)] = acc[i][j];
     }
   }
 }
