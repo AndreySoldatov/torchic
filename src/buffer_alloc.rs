@@ -1,13 +1,14 @@
 use std::{
     collections::{BTreeMap, HashSet},
     marker::PhantomData,
+    num::NonZeroU64,
     sync::{Arc, Mutex, mpsc::channel},
 };
 
 use slotmap::{SlotMap, new_key_type};
 use wgpu::{BufferDescriptor, BufferUsages};
 
-use crate::{buffer_alloc::usage_marker::Storage, runtime::WGPUContext};
+use crate::{AsBindingResource, buffer_alloc::usage_marker::Storage, runtime::WGPUContext};
 
 new_key_type! {
     struct BufferId;
@@ -331,8 +332,14 @@ impl BufferLease<usage_marker::Storage> {
 
         queue.write_buffer(&self.raw, 0, data);
     }
+}
 
-    pub fn binding(&self) -> wgpu::BindingResource<'_> {
-        self.raw.as_entire_binding()
+impl AsBindingResource for BufferLease<usage_marker::Storage> {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            buffer: &self.raw,
+            offset: 0,
+            size: Some(NonZeroU64::new(self.size as u64).unwrap()),
+        })
     }
 }

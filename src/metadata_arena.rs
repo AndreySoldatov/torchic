@@ -1,6 +1,8 @@
+use std::num::NonZeroU64;
+
 use wgpu::{BufferUsages, wgt::BufferDescriptor};
 
-use crate::runtime::WGPUContext;
+use crate::{AsBindingResource, runtime::WGPUContext};
 
 #[derive(Debug)]
 pub struct MetadataArena {
@@ -15,6 +17,16 @@ pub struct MetdataHandle<'a> {
     pub(crate) offset: u64,
     pub(crate) size: u64,
     pub(crate) buf: &'a wgpu::Buffer,
+}
+
+impl<'a> AsBindingResource for MetdataHandle<'a> {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            buffer: self.buf,
+            offset: self.offset,
+            size: Some(NonZeroU64::new(self.size).unwrap()),
+        })
+    }
 }
 
 #[derive(Debug)]

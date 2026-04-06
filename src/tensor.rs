@@ -1,6 +1,7 @@
 use std::sync::{Arc, atomic::AtomicU64};
 
 use crate::{
+    AsBindingResource,
     autograd::{self, GradNode},
     buffer_alloc::{BufferLease, usage_marker::Storage},
     ops,
@@ -41,12 +42,14 @@ impl Tensor {
         self.inner.id
     }
 
-    pub(crate) fn buf_binding(&self) -> wgpu::BindingResource<'_> {
-        self.inner.buf.binding()
-    }
-
     pub(crate) fn bsize(&self) -> usize {
         self.numel() * DTYPE_SIZE
+    }
+}
+
+impl AsBindingResource for Tensor {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
+        self.inner.buf.as_binding_resource()
     }
 }
 
@@ -131,7 +134,11 @@ impl Tensor {
         ops::matmul(self, other)
     }
 
-    pub fn transpose(&self) -> Result<Tensor, ops::TensorOpError> {
-        ops::transpose(self)
+    pub fn transposed(&self) -> Result<Tensor, ops::TensorOpError> {
+        ops::transposed(self)
+    }
+
+    pub fn relu(&self) -> Result<Tensor, ops::TensorOpError> {
+        ops::relu(self)
     }
 }

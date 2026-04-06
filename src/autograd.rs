@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ops::{self, OpType, ReduceOpType},
+    ops::{self, OpType, ReduceOpType, ScalarEwizeType},
     runtime::{no_grad, rt},
     tensor::Tensor,
 };
@@ -13,6 +13,12 @@ use crate::{
 pub(crate) struct GradNode {
     pub(crate) op: OpType,
     pub(crate) parents: Vec<Tensor>,
+    pub(crate) meta: Option<GradNodeMeta>,
+}
+
+#[derive(Debug)]
+pub(crate) enum GradNodeMeta {
+    Scalar(f32),
 }
 
 fn topo_recursive(tensor: &Tensor, result: &mut Vec<Tensor>, visited: &mut HashSet<u64>) {
@@ -57,25 +63,46 @@ pub(crate) fn backward(tensor: &Tensor) {
                 .clone();
 
             match &n.op {
-                OpType::BinopEwizeType(btype) => match btype {
+                OpType::BinopEwizeType(typ) => match typ {
                     ops::BinopEwizeType::Add => {
-                        add_backward(&out_grad, &n.parents[0], &n.parents[1])
+                        bin_add_backward(&out_grad, &n.parents[0], &n.parents[1])
                     }
                     ops::BinopEwizeType::Mul => {
-                        mul_backward(&out_grad, &n.parents[0], &n.parents[1])
+                        bin_mul_backward(&out_grad, &n.parents[0], &n.parents[1])
                     }
                 },
-                OpType::Reduce(red) => match red {
+                OpType::UnopEwizeType(typ) => match typ {
+                    ops::UnopEwizeType::Relu => relu_backward(&out_grad, &n.parents[0]),
+                    ops::UnopEwizeType::ReluBackward => {
+                        panic!(
+                            "Relu backward cannot be called from user code with grad calculation"
+                        )
+                    }
+                },
+                OpType::Reduce(typ) => match typ {
                     ReduceOpType::Sum => sum_backward(&out_grad, &n.parents[0]),
                 },
                 OpType::Transpose => transpose_backward(&out_grad, &n.parents[0]),
                 OpType::Matmul => matmul_backward(&out_grad, &n.parents[0], &n.parents[1]),
+                OpType::ScalarEwize(typ) => match typ {
+                    ScalarEwizeType::Mul => {
+                        let GradNodeMeta::Scalar(s) = n.meta.as_ref().unwrap();
+                        scal_mul_backward(&out_grad, &n.parents[0], *s)
+                    }
+                },
             }
         }
     }
 }
 
-fn add_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
+fn scal_mul_backward(out_grad: &Tensor, p: &Tensor, s: f32) {
+    if p.requires_grad() {
+        rt().grad_store
+            .acc(p.id(), &ops::mul_scalar(out_grad, s).unwrap());
+    }
+}
+
+fn bin_add_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     if lhs.requires_grad() {
         rt().grad_store.acc(lhs.id(), &out_grad);
     }
@@ -84,7 +111,7 @@ fn add_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     }
 }
 
-fn mul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
+fn bin_mul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     if lhs.requires_grad() {
         rt().grad_store
             .acc(lhs.id(), &ops::mul(&out_grad, rhs).unwrap());
@@ -109,21 +136,35 @@ fn sum_backward(out_grad: &Tensor, p: &Tensor) {
 fn transpose_backward(out_grad: &Tensor, p: &Tensor) {
     if p.requires_grad() {
         rt().grad_store
-            .acc(p.id(), &ops::transpose(out_grad).unwrap());
+            .acc(p.id(), &ops::transposed(out_grad).unwrap());
     }
 }
 
 fn matmul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
+    todo!();
     if lhs.requires_grad() {
         rt().grad_store.acc(
             lhs.id(),
-            &ops::matmul(out_grad, &ops::transpose(rhs).unwrap()).unwrap(),
+            &ops::matmul(out_grad, &ops::transposed(rhs).unwrap()).unwrap(),
         );
     }
     if rhs.requires_grad() {
         rt().grad_store.acc(
             rhs.id(),
-            &ops::matmul(&ops::transpose(lhs).unwrap(), out_grad).unwrap(),
+            &ops::matmul(&ops::transposed(lhs).unwrap(), out_grad).unwrap(),
+        );
+    }
+}
+
+fn relu_backward(out_grad: &Tensor, p: &Tensor) {
+    if p.requires_grad() {
+        rt().grad_store.acc(
+            p.id(),
+            &ops::mul(
+                out_grad,
+                &ops::dispatch_unop_ewize(p, ops::UnopEwizeType::ReluBackward).unwrap(),
+            )
+            .unwrap(),
         );
     }
 }

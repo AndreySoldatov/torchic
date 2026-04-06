@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    ops::{BinopEwizeType, OpType},
+    ops::{BinopEwizeType, OpType, ScalarEwizeType, UnopEwizeType},
     runtime::WGPUContext,
 };
 
@@ -87,7 +87,7 @@ impl KernelRegistry {
     fn load_known(&mut self, key: &KernelKey) {
         match &key.op {
             OpType::BinopEwizeType(typ) => {
-                let template_base = include_str!("shader_templates/binop_ewize/binop_ewize.wgsl");
+                let template_base = include_str!("shader_templates/binop_ewize.wgsl");
                 let mut variables = HashMap::new();
                 match typ {
                     BinopEwizeType::Add => {
@@ -95,6 +95,27 @@ impl KernelRegistry {
                     }
                     BinopEwizeType::Mul => {
                         variables.insert("operation", "output[idx] = input1[idx] * input2[idx];");
+                    }
+                }
+                let src = subst::substitute(template_base, &variables)
+                    .expect("Shader template not substituted correcty!");
+                self.load_with_source(key, &src);
+            }
+            OpType::UnopEwizeType(typ) => {
+                let template_base = include_str!("shader_templates/unop_ewize.wgsl");
+                let mut variables = HashMap::new();
+                match typ {
+                    UnopEwizeType::Relu => {
+                        variables.insert(
+                            "operation",
+                            "output[idx] = select(0.0, input[idx], input[idx] >= 0.0);",
+                        );
+                    }
+                    UnopEwizeType::ReluBackward => {
+                        variables.insert(
+                            "operation",
+                            "output[idx] = select(0.0, 1.0, input[idx] > 0.0);",
+                        );
                     }
                 }
                 let src = subst::substitute(template_base, &variables)
@@ -110,6 +131,21 @@ impl KernelRegistry {
             OpType::Transpose => {
                 self.load_with_source(key, include_str!("shader_templates/transpose.wgsl"));
             }
+            OpType::ScalarEwize(typ) => {
+                let template_base = include_str!("shader_templates/scalar_ewize.wgsl");
+                let mut variables = HashMap::new();
+                match typ {
+                    ScalarEwizeType::Mul => {
+                        variables.insert("operation", "output[idx] = input[idx] * s;");
+                    }
+                }
+                let src = subst::substitute(template_base, &variables)
+                    .expect("Shader template not substituted correcty!");
+                self.load_with_source(key, &src);
+            }
+            OpType::Outer => {
+                self.load_with_source(key, include_str!("shader_templates/outer.wgsl"));
+            }
         }
     }
 
@@ -123,45 +159,17 @@ impl KernelRegistry {
 }
 
 fn op_to_bgl(op: &OpType, device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
-    match op {
-        OpType::BinopEwizeType(_) => binop_ewize_bgl(device),
-        OpType::Reduce(_) => reduce_bgl(device),
-        OpType::Matmul => matmul_bgl(device),
-        OpType::Transpose => transpose_bgl(device),
-    }
-}
+    let read_only_mask = match op {
+        OpType::BinopEwizeType(_) => vec![true, true, false],
+        OpType::Reduce(_) => vec![true, false],
+        OpType::Matmul => vec![true, true, false, true],
+        OpType::Transpose => vec![true, false, true],
+        OpType::UnopEwizeType(_) => vec![true, false],
+        OpType::ScalarEwize(_) => vec![true, false],
+        OpType::Outer => vec![true, true, false, true],
+    };
 
-fn binop_ewize_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("binop ewize bgl"),
-        entries: &[entry(0, true), entry(1, true), entry(2, false)],
-    })
-}
-
-fn reduce_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Reduce bgl"),
-        entries: &[entry(0, true), entry(1, false)],
-    })
-}
-
-fn matmul_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("matmul bgl"),
-        entries: &[
-            entry(0, true),
-            entry(1, true),
-            entry(2, false),
-            entry(3, true),
-        ],
-    })
-}
-
-fn transpose_bgl(device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("transpose bgl"),
-        entries: &[entry(0, true), entry(1, false), entry(2, true)],
-    })
+    create_bgl(op.as_ref(), &read_only_mask, device)
 }
 
 fn entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -175,4 +183,21 @@ fn entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
+}
+
+fn create_bgl(
+    prefix: &str,
+    read_only: &[bool],
+    device: Arc<wgpu::Device>,
+) -> wgpu::BindGroupLayout {
+    let label = format!("{} bgl", prefix);
+    let entries: Vec<wgpu::BindGroupLayoutEntry> = read_only
+        .iter()
+        .enumerate()
+        .map(|(i, e)| entry(i as u32, *e))
+        .collect();
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(&label),
+        entries: &entries,
+    })
 }
