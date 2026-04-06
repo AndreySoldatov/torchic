@@ -312,7 +312,17 @@ struct MatmulMeta {
     k: u32,
 }
 
-fn to_matrix_shape(shape1: &[usize], shape2: &[usize]) -> Result<(u32, u32, u32), TensorOpError> {
+enum CollapseDim {
+    None,
+    M,
+    N,
+    Both,
+}
+
+fn to_matrix_shape(
+    shape1: &[usize],
+    shape2: &[usize],
+) -> Result<(u32, u32, u32, CollapseDim), TensorOpError> {
     if shape1.len() == 0 || shape2.len() == 0 {
         return Err(TensorOpError::EmptyTensor);
     }
@@ -322,18 +332,23 @@ fn to_matrix_shape(shape1: &[usize], shape2: &[usize]) -> Result<(u32, u32, u32)
     }
 
     match (shape1, shape2) {
-        ([m, k1], [k2, n]) if k1 == k2 => Ok((*m as u32, *n as u32, *k1 as u32)),
-        ([m, k1], [k2]) if k1 == k2 => Ok((*m as u32, 1, *k1 as u32)),
-        ([k1], [k2, n]) if k1 == k2 => Ok((1, *n as u32, *k1 as u32)),
-        ([k1], [k2]) if k1 == k2 => Ok((1, 1, *k1 as u32)),
+        ([m, k1], [k2, n]) if k1 == k2 => Ok((*m as u32, *n as u32, *k1 as u32, CollapseDim::None)),
+        ([m, k1], [k2]) if k1 == k2 => Ok((*m as u32, 1, *k1 as u32, CollapseDim::N)),
+        ([k1], [k2, n]) if k1 == k2 => Ok((1, *n as u32, *k1 as u32, CollapseDim::M)),
+        ([k1], [k2]) if k1 == k2 => Ok((1, 1, *k1 as u32, CollapseDim::Both)),
         _ => Err(TensorOpError::MismatchedShapes),
     }
 }
 
 pub fn matmul(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
-    let (m, n, k) = to_matrix_shape(lhs.shape(), rhs.shape())?;
+    let (m, n, k, col) = to_matrix_shape(lhs.shape(), rhs.shape())?;
 
-    let out_shape = vec![m as usize, n as usize];
+    let out_shape = match col {
+        CollapseDim::None => vec![m as usize, n as usize],
+        CollapseDim::N => vec![m as usize],
+        CollapseDim::M => vec![n as usize],
+        CollapseDim::Both => vec![1],
+    };
     let bsize = m * n * (DTYPE_SIZE as u32);
 
     let op = OpType::Matmul;
@@ -445,11 +460,7 @@ pub fn transposed(t: &Tensor) -> Result<Tensor, TensorOpError> {
         inner: Arc::new(TensorInner {
             id: get_tensor_id(),
             buf: out_buf,
-            shape: if n != 1 {
-                vec![n as usize, m as usize]
-            } else {
-                vec![m as usize]
-            },
+            shape: vec![n as usize, m as usize],
             requires_grad,
             grad_node,
         }),

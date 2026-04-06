@@ -4,7 +4,7 @@ use crate::{
     AsBindingResource,
     autograd::{self, GradNode},
     buffer_alloc::{BufferLease, usage_marker::Storage},
-    ops,
+    ops::{self, TensorOpError},
     runtime::{cleanup, rt},
 };
 
@@ -140,5 +140,13 @@ impl Tensor {
 
     pub fn relu(&self) -> Result<Tensor, ops::TensorOpError> {
         ops::relu(self)
+    }
+
+    pub fn mul_s(&self, s: f32) -> Result<Tensor, TensorOpError> {
+        ops::mul_scalar(self, s)
+    }
+
+    pub fn outer(&self, other: &Tensor) -> Result<Tensor, TensorOpError> {
+        ops::outer(self, other)
     }
 }

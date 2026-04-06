@@ -90,24 +90,36 @@ pub(crate) fn backward(tensor: &Tensor) {
                         scal_mul_backward(&out_grad, &n.parents[0], *s)
                     }
                 },
+                OpType::Outer => outer_backward(&out_grad, &n.parents[0], &n.parents[1]),
             }
         }
     }
 }
 
+fn outer_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
+    if lhs.requires_grad() {
+        acc(lhs.id(), &ops::matmul(out_grad, rhs).unwrap());
+    }
+    if rhs.requires_grad() {
+        acc(
+            rhs.id(),
+            &ops::matmul(&ops::transposed(out_grad).unwrap(), lhs).unwrap(),
+        );
+    }
+}
+
 fn scal_mul_backward(out_grad: &Tensor, p: &Tensor, s: f32) {
     if p.requires_grad() {
-        rt().grad_store
-            .acc(p.id(), &ops::mul_scalar(out_grad, s).unwrap());
+        acc(p.id(), &ops::mul_scalar(out_grad, s).unwrap());
     }
 }
 
 fn bin_add_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
     if lhs.requires_grad() {
-        rt().grad_store.acc(lhs.id(), &out_grad);
+        acc(lhs.id(), &out_grad);
     }
     if rhs.requires_grad() {
-        rt().grad_store.acc(rhs.id(), &out_grad);
+        acc(rhs.id(), &out_grad);
     }
 }
 
@@ -124,9 +136,10 @@ fn bin_mul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
 
 fn sum_backward(out_grad: &Tensor, p: &Tensor) {
     if p.requires_grad() {
+        assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
         let grad_scal = out_grad.to_vec()[0];
 
-        rt().grad_store.acc(
+        acc(
             p.id(),
             &Tensor::new(p.shape(), &vec![grad_scal; p.numel()], false),
         );
@@ -141,24 +154,58 @@ fn transpose_backward(out_grad: &Tensor, p: &Tensor) {
 }
 
 fn matmul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
-    todo!();
     if lhs.requires_grad() {
-        rt().grad_store.acc(
-            lhs.id(),
-            &ops::matmul(out_grad, &ops::transposed(rhs).unwrap()).unwrap(),
-        );
+        match (lhs.shape(), rhs.shape()) {
+            ([_, _], [_, _]) | ([_], [_, _]) => {
+                // A @ B or x @ B
+                acc(
+                    lhs.id(),
+                    &ops::matmul(out_grad, &ops::transposed(rhs).unwrap()).unwrap(),
+                );
+            }
+            ([_, _], [_]) => {
+                // A @ y
+                acc(lhs.id(), &ops::outer(out_grad, rhs).unwrap());
+            }
+            ([_], [_]) => {
+                // x @ y -> scalar
+                assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
+                let scalar = out_grad.to_vec()[0];
+
+                acc(lhs.id(), &ops::mul_scalar(rhs, scalar).unwrap());
+            }
+            _ => {}
+        }
     }
+
     if rhs.requires_grad() {
-        rt().grad_store.acc(
-            rhs.id(),
-            &ops::matmul(&ops::transposed(lhs).unwrap(), out_grad).unwrap(),
-        );
+        match (lhs.shape(), rhs.shape()) {
+            ([_, _], [_, _]) | ([_, _], [_]) => {
+                // A @ B or A @ y
+                acc(
+                    rhs.id(),
+                    &ops::matmul(&ops::transposed(lhs).unwrap(), out_grad).unwrap(),
+                );
+            }
+            ([_], [_, _]) => {
+                // x @ B
+                acc(rhs.id(), &ops::outer(lhs, out_grad).unwrap());
+            }
+            ([_], [_]) => {
+                // x @ y -> scalar
+                assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
+                let scalar = out_grad.to_vec()[0];
+
+                acc(rhs.id(), &ops::mul_scalar(lhs, scalar).unwrap());
+            }
+            _ => {}
+        }
     }
 }
 
 fn relu_backward(out_grad: &Tensor, p: &Tensor) {
     if p.requires_grad() {
-        rt().grad_store.acc(
+        acc(
             p.id(),
             &ops::mul(
                 out_grad,
@@ -167,6 +214,10 @@ fn relu_backward(out_grad: &Tensor, p: &Tensor) {
             .unwrap(),
         );
     }
+}
+
+fn acc(id: u64, t: &Tensor) {
+    rt().grad_store.acc(id, t);
 }
 
 #[derive(Debug)]
