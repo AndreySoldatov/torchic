@@ -81,6 +81,7 @@ pub(crate) fn backward(tensor: &Tensor) {
                 },
                 OpType::Reduce(typ) => match typ {
                     ReduceOpType::Sum => sum_backward(&out_grad, &n.parents[0]),
+                    ReduceOpType::Max => unimplemented!(), // Too much complexity with current architecture
                 },
                 OpType::Transpose => transpose_backward(&out_grad, &n.parents[0]),
                 OpType::Matmul => matmul_backward(&out_grad, &n.parents[0], &n.parents[1]),

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    ops::{BinopEwizeType, OpType, ScalarEwizeType, UnopEwizeType},
+    ops::{BinopEwizeType, OpType, ReduceOpType, ScalarEwizeType, UnopEwizeType},
     runtime::WGPUContext,
 };
 
@@ -123,8 +123,22 @@ impl KernelRegistry {
                     .expect("Shader template not substituted correcty!");
                 self.load_with_source(key, &src);
             }
-            KernelKey::Op(OpType::Reduce(_)) => {
-                self.load_with_source(key, include_str!("shader_templates/sum.wgsl"));
+            KernelKey::Op(OpType::Reduce(typ)) => {
+                let template_base = include_str!("shader_templates/reduce.wgsl");
+                let mut variables = HashMap::new();
+                match typ {
+                    ReduceOpType::Sum => {
+                        variables.insert("identity", "1.0");
+                        variables.insert("map", "acc + x");
+                    }
+                    ReduceOpType::Max => {
+                        variables.insert("identity", "-1.0 / 0.0");
+                        variables.insert("map", "max(acc, x)");
+                    }
+                }
+                let src = subst::substitute(template_base, &variables)
+                    .expect("Shader template not substituted correcty!");
+                self.load_with_source(key, &src);
             }
             KernelKey::Op(OpType::Matmul) => {
                 self.load_with_source(key, include_str!("shader_templates/matmul.wgsl"));

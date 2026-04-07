@@ -32,6 +32,7 @@ pub enum BinopEwizeType {
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
 pub enum ReduceOpType {
     Sum,
+    Max,
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
@@ -231,11 +232,19 @@ pub fn dispatch_binop_ewize(
 }
 
 pub fn sum(t: &Tensor) -> Result<Tensor, TensorOpError> {
+    reduce(t, ReduceOpType::Sum)
+}
+
+pub fn max(t: &Tensor) -> Result<Tensor, TensorOpError> {
+    reduce(t, ReduceOpType::Max)
+}
+
+pub fn reduce(t: &Tensor, typ: ReduceOpType) -> Result<Tensor, TensorOpError> {
     if t.numel() == 0 {
         return Err(TensorOpError::EmptyTensor);
     }
 
-    let op = OpType::Reduce(ReduceOpType::Sum);
+    let op = OpType::Reduce(typ);
 
     let rt = rt();
 

@@ -5,6 +5,10 @@ const threads : u32 = 256;
 
 var<workgroup> wgm: array<f32, threads>;
 
+fn map(acc: f32, x: f32) -> f32 {
+    return ${map};
+}
+
 @compute @workgroup_size(threads)
 fn main(
     @builtin(global_invocation_id) gid: vec3<u32>,
@@ -15,11 +19,11 @@ fn main(
     let lidx = lid.x;
     let step_size = nw.x * threads;
     var i = gid.x;
-    var acc = 0.0;
+    var acc = ${identity};
 
     loop {
         if (i >= arrayLength(&input)) { break; }
-        acc += input[i];
+        acc = map(acc, input[i])
         i += step_size;
     }
 
@@ -30,7 +34,7 @@ fn main(
     loop {
         if (stride == 0u) { break; }
         if (lidx < stride) {
-            wgm[lidx] += wgm[lidx + stride];
+            wgm[lidx] = map(wgm[lidx], wgm[lidx + stride]);
         }
         workgroupBarrier();
         stride /= 2u;

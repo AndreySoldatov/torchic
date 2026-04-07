@@ -130,6 +130,10 @@ impl Tensor {
         ops::sum(self)
     }
 
+    pub fn max(&self) -> Result<Tensor, ops::TensorOpError> {
+        ops::max(self)
+    }
+
     pub fn matmul(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
         ops::matmul(self, other)
     }
