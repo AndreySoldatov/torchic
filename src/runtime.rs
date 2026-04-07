@@ -48,11 +48,12 @@ pub(crate) struct Runtime {
     pub(crate) grad_store: GradStore,
     pub(crate) kernel_registry: Mutex<KernelRegistry>,
     pub(crate) do_grad: Mutex<bool>,
+    pub(crate) seed: u32,
 }
 
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
 
-pub fn init_runtime(adapter: wgpu::Adapter) {
+pub fn init_runtime(adapter: wgpu::Adapter, seed: u32) {
     let ctx = WGPUContext::new(adapter);
 
     let runtime = Runtime {
@@ -63,6 +64,7 @@ pub fn init_runtime(adapter: wgpu::Adapter) {
         grad_store: GradStore::new(),
         kernel_registry: Mutex::new(KernelRegistry::new(ctx)),
         do_grad: Mutex::new(true),
+        seed,
     };
 
     RUNTIME

@@ -22,8 +22,9 @@ impl KernelEntry {
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
-pub struct KernelKey {
-    pub op: OpType,
+pub enum KernelKey {
+    Op(OpType),
+    HeInit,
 }
 
 #[derive(Debug)]
@@ -41,7 +42,7 @@ impl KernelRegistry {
     }
 
     fn load_with_source(&mut self, key: &KernelKey, src: &str) {
-        let label = format!("{:?} shader", key.op);
+        let label = format!("{:?} shader", key);
         let shader = self
             .ctx
             .device
@@ -50,9 +51,9 @@ impl KernelRegistry {
                 source: wgpu::ShaderSource::Wgsl(src.into()),
             });
 
-        let bind_group_layout = op_to_bgl(&key.op, self.ctx.device.clone());
+        let bind_group_layout = kernel_key_to_bgl(&key, self.ctx.device.clone());
 
-        let label = format!("{:?} pipeline layout", key.op);
+        let label = format!("{:?} pipeline layout", key);
         let pl = self
             .ctx
             .device
@@ -62,7 +63,7 @@ impl KernelRegistry {
                 immediate_size: 0,
             });
 
-        let label = format!("{:?} compute pipeline", key.op);
+        let label = format!("{:?} compute pipeline", key);
         let pipeline = self
             .ctx
             .device
@@ -85,8 +86,8 @@ impl KernelRegistry {
     }
 
     fn load_known(&mut self, key: &KernelKey) {
-        match &key.op {
-            OpType::BinopEwizeType(typ) => {
+        match key {
+            KernelKey::Op(OpType::BinopEwizeType(typ)) => {
                 let template_base = include_str!("shader_templates/binop_ewize.wgsl");
                 let mut variables = HashMap::new();
                 match typ {
@@ -101,7 +102,7 @@ impl KernelRegistry {
                     .expect("Shader template not substituted correcty!");
                 self.load_with_source(key, &src);
             }
-            OpType::UnopEwizeType(typ) => {
+            KernelKey::Op(OpType::UnopEwizeType(typ)) => {
                 let template_base = include_str!("shader_templates/unop_ewize.wgsl");
                 let mut variables = HashMap::new();
                 match typ {
@@ -122,16 +123,16 @@ impl KernelRegistry {
                     .expect("Shader template not substituted correcty!");
                 self.load_with_source(key, &src);
             }
-            OpType::Reduce(_) => {
+            KernelKey::Op(OpType::Reduce(_)) => {
                 self.load_with_source(key, include_str!("shader_templates/sum.wgsl"));
             }
-            OpType::Matmul => {
+            KernelKey::Op(OpType::Matmul) => {
                 self.load_with_source(key, include_str!("shader_templates/matmul.wgsl"));
             }
-            OpType::Transpose => {
+            KernelKey::Op(OpType::Transpose) => {
                 self.load_with_source(key, include_str!("shader_templates/transpose.wgsl"));
             }
-            OpType::ScalarEwize(typ) => {
+            KernelKey::Op(OpType::ScalarEwize(typ)) => {
                 let template_base = include_str!("shader_templates/scalar_ewize.wgsl");
                 let mut variables = HashMap::new();
                 match typ {
@@ -143,8 +144,11 @@ impl KernelRegistry {
                     .expect("Shader template not substituted correcty!");
                 self.load_with_source(key, &src);
             }
-            OpType::Outer => {
+            KernelKey::Op(OpType::Outer) => {
                 self.load_with_source(key, include_str!("shader_templates/outer.wgsl"));
+            }
+            KernelKey::HeInit => {
+                self.load_with_source(key, include_str!("shader_templates/normal.wgsl"));
             }
         }
     }
@@ -158,18 +162,20 @@ impl KernelRegistry {
     }
 }
 
-fn op_to_bgl(op: &OpType, device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
-    let read_only_mask = match op {
-        OpType::BinopEwizeType(_) => vec![true, true, false],
-        OpType::Reduce(_) => vec![true, false],
-        OpType::Matmul => vec![true, true, false, true],
-        OpType::Transpose => vec![true, false, true],
-        OpType::UnopEwizeType(_) => vec![true, false],
-        OpType::ScalarEwize(_) => vec![true, false],
-        OpType::Outer => vec![true, true, false, true],
+fn kernel_key_to_bgl(key: &KernelKey, device: Arc<wgpu::Device>) -> wgpu::BindGroupLayout {
+    let read_only_mask = match key {
+        KernelKey::Op(OpType::BinopEwizeType(_)) => vec![true, true, false],
+        KernelKey::Op(OpType::Reduce(_)) => vec![true, false],
+        KernelKey::Op(OpType::Matmul) => vec![true, true, false, true],
+        KernelKey::Op(OpType::Transpose) => vec![true, false, true],
+        KernelKey::Op(OpType::UnopEwizeType(_)) => vec![true, false],
+        KernelKey::Op(OpType::ScalarEwize(_)) => vec![true, false],
+        KernelKey::Op(OpType::Outer) => vec![true, true, false, true],
+        KernelKey::HeInit => vec![true, false],
     };
 
-    create_bgl(op.as_ref(), &read_only_mask, device)
+    let prefix = format!("{:?}", key);
+    create_bgl(&prefix, &read_only_mask, device)
 }
 
 fn entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {

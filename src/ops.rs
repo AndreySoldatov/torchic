@@ -78,7 +78,7 @@ pub fn dispatch_scalar_ewize(
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let out_buf = rt.storage_buffer_alloc.request(t.bsize() as u64);
 
@@ -132,7 +132,7 @@ pub fn dispatch_unop_ewize(t: &Tensor, typ: UnopEwizeType) -> Result<Tensor, Ten
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let out_buf = rt.storage_buffer_alloc.request(t.bsize() as u64);
 
@@ -191,7 +191,7 @@ pub fn dispatch_binop_ewize(
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let out_buf = rt.storage_buffer_alloc.request(lhs.bsize() as u64);
 
@@ -243,7 +243,7 @@ pub fn sum(t: &Tensor) -> Result<Tensor, TensorOpError> {
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let mut output_size = t.numel().div_ceil(256).min(65535);
     let mut inp_buf = rt
@@ -359,7 +359,7 @@ pub fn matmul(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let out_buf = rt.storage_buffer_alloc.request(bsize as u64);
 
@@ -423,7 +423,7 @@ pub fn transposed(t: &Tensor) -> Result<Tensor, TensorOpError> {
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let out_buf = rt.storage_buffer_alloc.request(t.bsize() as u64);
 
@@ -480,7 +480,7 @@ pub fn outer(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
         .kernel_registry
         .lock()
         .unwrap()
-        .get(&KernelKey { op: op.clone() });
+        .get(&KernelKey::Op(op.clone()));
 
     let out_buf = rt
         .storage_buffer_alloc
@@ -524,6 +524,47 @@ pub fn outer(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
             grad_node,
         }),
     })
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct HeMeta {
+    fact: f32,
+    seed: u32,
+}
+
+pub fn he_init(seed: u32, fan_in: u32, shape: &[usize], requires_grad: bool) -> Tensor {
+    let rt = rt();
+    let numel = shape.iter().product::<usize>();
+    let out_buf = rt.storage_buffer_alloc.request((numel * DTYPE_SIZE) as u64);
+
+    let kernel = rt.kernel_registry.lock().unwrap().get(&KernelKey::HeInit);
+
+    let fact = (2.0 / (fan_in as f32)).sqrt();
+
+    let mut ma = rt.metadata_arena.lock().unwrap();
+    let meta = ma
+        .allocate(&bytemuck::bytes_of(&HeMeta { fact, seed }))
+        .unwrap();
+
+    let bg = create_bg("he init", &[&meta, &out_buf], kernel.bind_group_layout());
+
+    dispatch_pass(
+        "he init",
+        kernel.pipeline(),
+        &bg,
+        (numel.div_ceil(64).min(65535) as u32, 1, 1),
+    );
+
+    Tensor {
+        inner: Arc::new(TensorInner {
+            id: get_tensor_id(),
+            buf: out_buf,
+            shape: shape.to_vec(),
+            requires_grad,
+            grad_node: None,
+        }),
+    }
 }
 
 pub(crate) fn dispatch_pass(
