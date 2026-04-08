@@ -1,16 +1,14 @@
-use std::{num::NonZeroU64, sync::Arc};
-
-use bytemuck::{Pod, Zeroable};
-use strum_macros::AsRefStr;
-use wgpu::BindGroupDescriptor;
+use std::sync::Arc;
 
 use crate::{
     AsBindingResource,
     autograd::{GradNode, GradNodeMeta},
-    kernel_registry::{KernelEntry, KernelKey},
-    runtime::{Runtime, do_grad, rt},
+    kernel_registry::KernelKey,
+    runtime::{do_grad, rt},
     tensor::{DTYPE_SIZE, Tensor, TensorInner, get_tensor_id},
 };
+use bytemuck::{Pod, Zeroable};
+use strum_macros::AsRefStr;
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone, AsRefStr)]
 pub enum OpType {
@@ -21,12 +19,15 @@ pub enum OpType {
     Transpose,
     ScalarEwize(ScalarEwizeType),
     Outer,
+    CrossEntropyLoss,
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
 pub enum BinopEwizeType {
     Add,
     Mul,
+    Div,
+    Sub,
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
@@ -39,11 +40,13 @@ pub enum ReduceOpType {
 pub enum UnopEwizeType {
     Relu,
     ReluBackward,
+    Sqrt,
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
 pub enum ScalarEwizeType {
     Mul,
+    Add,
 }
 
 #[derive(Debug)]
@@ -59,6 +62,10 @@ fn should_grad(grads: &[bool]) -> bool {
 
 pub fn mul_scalar(t: &Tensor, s: f32) -> Result<Tensor, TensorOpError> {
     dispatch_scalar_ewize(t, ScalarEwizeType::Mul, s)
+}
+
+pub fn add_scalar(t: &Tensor, s: f32) -> Result<Tensor, TensorOpError> {
+    dispatch_scalar_ewize(t, ScalarEwizeType::Add, s)
 }
 
 #[repr(C)]
@@ -125,6 +132,10 @@ pub fn relu(t: &Tensor) -> Result<Tensor, TensorOpError> {
     dispatch_unop_ewize(t, UnopEwizeType::Relu)
 }
 
+pub fn sqrt(t: &Tensor) -> Result<Tensor, TensorOpError> {
+    dispatch_unop_ewize(t, UnopEwizeType::Sqrt)
+}
+
 pub fn dispatch_unop_ewize(t: &Tensor, typ: UnopEwizeType) -> Result<Tensor, TensorOpError> {
     let op = OpType::UnopEwizeType(typ);
     let rt = rt();
@@ -174,6 +185,156 @@ pub fn add(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
 
 pub fn mul(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
     dispatch_binop_ewize(lhs, rhs, BinopEwizeType::Mul)
+}
+
+pub fn div(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
+    dispatch_binop_ewize(lhs, rhs, BinopEwizeType::Div)
+}
+
+pub fn sub(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
+    dispatch_binop_ewize(lhs, rhs, BinopEwizeType::Sub)
+}
+
+fn validate_cross_entropy_shapes(
+    logits: &Tensor,
+    targets: &Tensor,
+) -> Result<(usize, usize), TensorOpError> {
+    if logits.shape() != targets.shape() {
+        return Err(TensorOpError::MismatchedShapes);
+    }
+
+    match logits.shape() {
+        [batch, classes] if *batch > 0 && *classes > 0 => Ok((*batch, *classes)),
+        [0, _] | [_, 0] => Err(TensorOpError::EmptyTensor),
+        _ => Err(TensorOpError::NonMatrixTensor),
+    }
+}
+
+fn row_max(row: &[f32]) -> f32 {
+    let mut max = f32::NEG_INFINITY;
+    for &value in row {
+        max = max.max(value);
+    }
+    max
+}
+
+fn row_logsumexp(row: &[f32]) -> f32 {
+    let max = row_max(row);
+    let mut exp_sum = 0.0;
+    for &value in row {
+        exp_sum += (value - max).exp();
+    }
+    max + exp_sum.ln()
+}
+
+pub(crate) fn cross_entropy_loss_forward(
+    logits: &[f32],
+    targets: &[f32],
+    batch: usize,
+    classes: usize,
+) -> f32 {
+    let mut total = 0.0;
+
+    for row_idx in 0..batch {
+        let start = row_idx * classes;
+        let end = start + classes;
+        let logits_row = &logits[start..end];
+        let targets_row = &targets[start..end];
+        let logsumexp = row_logsumexp(logits_row);
+
+        for class_idx in 0..classes {
+            total -= targets_row[class_idx] * (logits_row[class_idx] - logsumexp);
+        }
+    }
+
+    total / batch as f32
+}
+
+pub(crate) fn cross_entropy_loss_backward_logits(
+    logits: &[f32],
+    targets: &[f32],
+    batch: usize,
+    classes: usize,
+    out_grad: f32,
+) -> Vec<f32> {
+    let mut grad = vec![0.0; logits.len()];
+    let scale = out_grad / batch as f32;
+
+    for row_idx in 0..batch {
+        let start = row_idx * classes;
+        let end = start + classes;
+        let logits_row = &logits[start..end];
+        let targets_row = &targets[start..end];
+        let max = row_max(logits_row);
+        let mut exp_sum = 0.0;
+        for &value in logits_row {
+            exp_sum += (value - max).exp();
+        }
+
+        for class_idx in 0..classes {
+            let softmax = (logits_row[class_idx] - max).exp() / exp_sum;
+            grad[start + class_idx] = (softmax - targets_row[class_idx]) * scale;
+        }
+    }
+
+    grad
+}
+
+pub(crate) fn cross_entropy_loss_backward_targets(
+    logits: &[f32],
+    batch: usize,
+    classes: usize,
+    out_grad: f32,
+) -> Vec<f32> {
+    let mut grad = vec![0.0; logits.len()];
+    let scale = -out_grad / batch as f32;
+
+    for row_idx in 0..batch {
+        let start = row_idx * classes;
+        let end = start + classes;
+        let logits_row = &logits[start..end];
+        let logsumexp = row_logsumexp(logits_row);
+
+        for class_idx in 0..classes {
+            grad[start + class_idx] = (logsumexp - logits_row[class_idx]) * scale;
+        }
+    }
+
+    grad
+}
+
+pub fn cross_entropy_loss(logits: &Tensor, targets: &Tensor) -> Result<Tensor, TensorOpError> {
+    let (batch, classes) = validate_cross_entropy_shapes(logits, targets)?;
+
+    let logits_data = logits.readback();
+    let targets_data = targets.readback();
+    let loss = cross_entropy_loss_forward(&logits_data, &targets_data, batch, classes);
+
+    let rt = rt();
+    let out_buf = rt.storage_buffer_alloc.request(DTYPE_SIZE as u64);
+    out_buf.set(bytemuck::cast_slice(&[loss]));
+
+    let op = OpType::CrossEntropyLoss;
+    let requires_grad = should_grad(&[logits.requires_grad(), targets.requires_grad()]);
+    let grad_node = if requires_grad {
+        Some(GradNode {
+            op,
+            parents: vec![logits.clone(), targets.clone()],
+            meta: None,
+        })
+    } else {
+        None
+    };
+
+    Ok(Tensor {
+        inner: Arc::new(TensorInner {
+            id: get_tensor_id(),
+            buf: out_buf,
+            shape: vec![1],
+            requires_grad,
+            grad_node,
+        }),
+    })
 }
 
 pub fn dispatch_binop_ewize(
@@ -628,4 +789,52 @@ pub(crate) fn create_bg(
         layout: bgl,
         entries: &bge,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Once;
+
+    use super::*;
+    use crate::runtime::{WGPUContext, init_runtime};
+
+    fn init_test_runtime() {
+        static ONCE: Once = Once::new();
+
+        ONCE.call_once(|| {
+            let adapter = WGPUContext::list_adapters()
+                .into_iter()
+                .next()
+                .expect("No WGPU adapter available for tests");
+            init_runtime(adapter, 42);
+        });
+    }
+
+    #[test]
+    fn cross_entropy_loss_matches_uniform_logits_and_backward() {
+        init_test_runtime();
+
+        let logits = Tensor::new(&[2, 3], &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], true);
+        let targets = Tensor::new(&[2, 3], &[1.0, 0.0, 0.0, 0.0, 0.0, 1.0], false);
+
+        let loss = cross_entropy_loss(&logits, &targets).unwrap();
+        let loss_value = loss.to_vec()[0];
+
+        assert!((loss_value - 3.0_f32.ln()).abs() < 1e-6);
+
+        loss.backward();
+        let grad = logits.grad().unwrap().to_vec();
+        let expected = vec![
+            -1.0 / 3.0,
+            1.0 / 6.0,
+            1.0 / 6.0,
+            1.0 / 6.0,
+            1.0 / 6.0,
+            -1.0 / 3.0,
+        ];
+
+        for (actual, expected) in grad.into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+    }
 }

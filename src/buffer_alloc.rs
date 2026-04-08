@@ -332,6 +332,10 @@ impl BufferLease<usage_marker::Storage> {
 
         queue.write_buffer(&self.raw, 0, data);
     }
+
+    pub(crate) fn raw(&self) -> &wgpu::Buffer {
+        &self.raw
+    }
 }
 
 impl AsBindingResource for BufferLease<usage_marker::Storage> {

@@ -2,9 +2,13 @@ use std::sync::atomic::AtomicU32;
 
 use crate::{
     ops::{self, TensorOpError},
-    runtime::rt,
+    runtime::{no_grad, rt},
     tensor::Tensor,
 };
+
+pub trait Model {
+    fn params(&self) -> Vec<Tensor>;
+}
 
 static LAYER_COUNTER: AtomicU32 = AtomicU32::new(1);
 
@@ -47,6 +51,18 @@ impl Linear {
     }
 }
 
+impl Model for Linear {
+    fn params(&self) -> Vec<Tensor> {
+        let mut res = vec![self.weights.clone()];
+
+        if let Some(b) = &self.bias {
+            res.push(b.clone());
+        }
+
+        res
+    }
+}
+
 pub struct MLP {
     layers: Vec<Linear>,
 }
@@ -74,5 +90,102 @@ impl MLP {
         }
 
         Ok(out)
+    }
+}
+
+impl Model for MLP {
+    fn params(&self) -> Vec<Tensor> {
+        let mut res = vec![];
+        for l in &self.layers {
+            res.append(&mut l.params());
+        }
+        res
+    }
+}
+
+struct Adam {
+    params: Vec<Tensor>,
+    m: Vec<Tensor>,
+    v: Vec<Tensor>,
+    lr: f32,
+    b1: f32,
+    b2: f32,
+    eps: f32,
+    t: i32,
+}
+
+impl Adam {
+    fn new<T: Model>(model: &T, lr: f32, b1: f32, b2: f32, eps: f32) -> Self {
+        let params = model.params();
+
+        let m: Vec<Tensor> = params
+            .iter()
+            .map(|p| Tensor::new(p.shape(), &vec![0.0; p.numel()], false))
+            .collect();
+
+        let v: Vec<Tensor> = params
+            .iter()
+            .map(|p| Tensor::new(p.shape(), &vec![0.0; p.numel()], false))
+            .collect();
+
+        Self {
+            params,
+            m,
+            v,
+            lr,
+            b1,
+            b2,
+            eps,
+            t: 0,
+        }
+    }
+
+    fn zero_grad(&self) {
+        for p in &self.params {
+            p.zero_grad()
+        }
+    }
+
+    fn step(&mut self) {
+        let ng = no_grad().unwrap();
+
+        self.t += 1;
+
+        for ((m, v), p) in self
+            .m
+            .iter_mut()
+            .zip(self.v.iter_mut())
+            .zip(self.params.iter_mut())
+        {
+            let grad = p.grad();
+            if grad.is_none() {
+                continue;
+            }
+            let grad = grad.unwrap();
+
+            *m = m
+                .mul_s(self.b1)
+                .unwrap()
+                .add(&grad.mul_s(1.0 - self.b1).unwrap())
+                .unwrap();
+
+            let m_hat = m.mul_s(1.0 / (1.0 - self.b1.powi(self.t))).unwrap();
+
+            *v = v
+                .mul_s(self.b2)
+                .unwrap()
+                .add(&grad.mul(&grad).unwrap().mul_s(1.0 - self.b2).unwrap())
+                .unwrap();
+
+            let v_hat = v.mul_s(1.0 / (1.0 - self.b2.powi(self.t))).unwrap();
+
+            let update = m_hat
+                .div(&v_hat.sqrt().unwrap().add_s(self.eps).unwrap())
+                .unwrap()
+                .mul_s(-1.0 * self.lr)
+                .unwrap();
+
+            p.assign(&p.add(&update).unwrap());
+        }
     }
 }

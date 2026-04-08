@@ -70,6 +70,8 @@ pub(crate) fn backward(tensor: &Tensor) {
                     ops::BinopEwizeType::Mul => {
                         bin_mul_backward(&out_grad, &n.parents[0], &n.parents[1])
                     }
+                    ops::BinopEwizeType::Div => todo!(),
+                    ops::BinopEwizeType::Sub => todo!(),
                 },
                 OpType::UnopEwizeType(typ) => match typ {
                     ops::UnopEwizeType::Relu => relu_backward(&out_grad, &n.parents[0]),
@@ -78,10 +80,11 @@ pub(crate) fn backward(tensor: &Tensor) {
                             "Relu backward cannot be called from user code with grad calculation"
                         )
                     }
+                    ops::UnopEwizeType::Sqrt => todo!(),
                 },
                 OpType::Reduce(typ) => match typ {
                     ReduceOpType::Sum => sum_backward(&out_grad, &n.parents[0]),
-                    ReduceOpType::Max => unimplemented!(), // Too much complexity with current architecture
+                    ReduceOpType::Max => todo!(), // Too much complexity with current architecture
                 },
                 OpType::Transpose => transpose_backward(&out_grad, &n.parents[0]),
                 OpType::Matmul => matmul_backward(&out_grad, &n.parents[0], &n.parents[1]),
@@ -90,8 +93,12 @@ pub(crate) fn backward(tensor: &Tensor) {
                         let GradNodeMeta::Scalar(s) = n.meta.as_ref().unwrap();
                         scal_mul_backward(&out_grad, &n.parents[0], *s)
                     }
+                    ScalarEwizeType::Add => todo!(),
                 },
                 OpType::Outer => outer_backward(&out_grad, &n.parents[0], &n.parents[1]),
+                OpType::CrossEntropyLoss => {
+                    cross_entropy_loss_backward(&out_grad, &n.parents[0], &n.parents[1])
+                }
             }
         }
     }
@@ -138,7 +145,7 @@ fn bin_mul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
 fn sum_backward(out_grad: &Tensor, p: &Tensor) {
     if p.requires_grad() {
         assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
-        let grad_scal = out_grad.to_vec()[0];
+        let grad_scal = out_grad.readback()[0];
 
         acc(
             p.id(),
@@ -171,7 +178,7 @@ fn matmul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
             ([_], [_]) => {
                 // x @ y -> scalar
                 assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
-                let scalar = out_grad.to_vec()[0];
+                let scalar = out_grad.readback()[0];
 
                 acc(lhs.id(), &ops::mul_scalar(rhs, scalar).unwrap());
             }
@@ -195,7 +202,7 @@ fn matmul_backward(out_grad: &Tensor, lhs: &Tensor, rhs: &Tensor) {
             ([_], [_]) => {
                 // x @ y -> scalar
                 assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
-                let scalar = out_grad.to_vec()[0];
+                let scalar = out_grad.readback()[0];
 
                 acc(rhs.id(), &ops::mul_scalar(lhs, scalar).unwrap());
             }
@@ -213,6 +220,45 @@ fn relu_backward(out_grad: &Tensor, p: &Tensor) {
                 &ops::dispatch_unop_ewize(p, ops::UnopEwizeType::ReluBackward).unwrap(),
             )
             .unwrap(),
+        );
+    }
+}
+
+fn cross_entropy_loss_backward(out_grad: &Tensor, logits: &Tensor, targets: &Tensor) {
+    assert!(out_grad.shape().len() == 1 && out_grad.shape()[0] == 1);
+
+    let out_grad_scalar = out_grad.readback()[0];
+    let [batch, classes] = logits.shape() else {
+        panic!("Cross entropy loss expects batched logits");
+    };
+
+    let logits_data = logits.readback();
+    let targets_data = targets.readback();
+
+    if logits.requires_grad() {
+        let logits_grad = ops::cross_entropy_loss_backward_logits(
+            &logits_data,
+            &targets_data,
+            *batch,
+            *classes,
+            out_grad_scalar,
+        );
+        acc(
+            logits.id(),
+            &Tensor::new(logits.shape(), &logits_grad, false),
+        );
+    }
+
+    if targets.requires_grad() {
+        let targets_grad = ops::cross_entropy_loss_backward_targets(
+            &logits_data,
+            *batch,
+            *classes,
+            out_grad_scalar,
+        );
+        acc(
+            targets.id(),
+            &Tensor::new(targets.shape(), &targets_grad, false),
         );
     }
 }

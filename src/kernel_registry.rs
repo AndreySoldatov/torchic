@@ -97,6 +97,12 @@ impl KernelRegistry {
                     BinopEwizeType::Mul => {
                         variables.insert("operation", "output[idx] = input1[idx] * input2[idx];");
                     }
+                    BinopEwizeType::Div => {
+                        variables.insert("operation", "output[idx] = input1[idx] / input2[idx];");
+                    }
+                    BinopEwizeType::Sub => {
+                        variables.insert("operation", "output[idx] = input1[idx] - input2[idx];");
+                    }
                 }
                 let src = subst::substitute(template_base, &variables)
                     .expect("Shader template not substituted correcty!");
@@ -117,6 +123,9 @@ impl KernelRegistry {
                             "operation",
                             "output[idx] = select(0.0, 1.0, input[idx] > 0.0);",
                         );
+                    }
+                    UnopEwizeType::Sqrt => {
+                        variables.insert("operation", "output[idx] = sqrt(input[idx]);");
                     }
                 }
                 let src = subst::substitute(template_base, &variables)
@@ -153,6 +162,9 @@ impl KernelRegistry {
                     ScalarEwizeType::Mul => {
                         variables.insert("operation", "output[idx] = input[idx] * s;");
                     }
+                    ScalarEwizeType::Add => {
+                        variables.insert("operation", "output[idx] = input[idx] + s;");
+                    }
                 }
                 let src = subst::substitute(template_base, &variables)
                     .expect("Shader template not substituted correcty!");
@@ -160,6 +172,9 @@ impl KernelRegistry {
             }
             KernelKey::Op(OpType::Outer) => {
                 self.load_with_source(key, include_str!("shader_templates/outer.wgsl"));
+            }
+            KernelKey::Op(OpType::CrossEntropyLoss) => {
+                panic!("CrossEntropyLoss is implemented as a CPU-side fused op")
             }
             KernelKey::HeInit => {
                 self.load_with_source(key, include_str!("shader_templates/normal.wgsl"));
@@ -185,6 +200,9 @@ fn kernel_key_to_bgl(key: &KernelKey, device: Arc<wgpu::Device>) -> wgpu::BindGr
         KernelKey::Op(OpType::UnopEwizeType(_)) => vec![true, false],
         KernelKey::Op(OpType::ScalarEwize(_)) => vec![true, false],
         KernelKey::Op(OpType::Outer) => vec![true, true, false, true],
+        KernelKey::Op(OpType::CrossEntropyLoss) => {
+            panic!("CrossEntropyLoss does not use a GPU kernel bind group layout")
+        }
         KernelKey::HeInit => vec![true, false],
     };
 

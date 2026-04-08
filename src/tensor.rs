@@ -45,6 +45,50 @@ impl Tensor {
     pub(crate) fn bsize(&self) -> usize {
         self.numel() * DTYPE_SIZE
     }
+
+    pub(crate) fn readback(&self) -> Vec<f32> {
+        let staging = rt().readback_buffer_alloc.request(self.bsize() as u64);
+        staging.download(&self.inner.buf).unwrap()
+    }
+
+    pub(crate) fn zero_grad(&self) {
+        if !rt().grad_store.map.lock().unwrap().contains_key(&self.id()) {
+            return;
+        }
+
+        rt().grad_store
+            .map
+            .lock()
+            .unwrap()
+            .remove(&self.id())
+            .unwrap();
+    }
+
+    pub(crate) fn buf(&self) -> &BufferLease<Storage> {
+        &self.inner.buf
+    }
+
+    // The only mutating operation. TO BE USED ONLY IN ADAM STEP FOR NOW
+    pub(crate) fn assign(&mut self, other: &Tensor) {
+        assert!(self.shape() == other.shape());
+        let rt = rt();
+
+        let mut encoder =
+            rt.ctx
+                .device
+                .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
+                    label: Some("Tensor copy encoder"),
+                });
+        encoder.copy_buffer_to_buffer(
+            other.buf().raw(),
+            0,
+            self.inner.buf.raw(),
+            0,
+            Some(self.bsize() as u64),
+        );
+
+        rt.ctx.queue.submit(Some(encoder.finish()));
+    }
 }
 
 impl AsBindingResource for Tensor {
@@ -108,11 +152,8 @@ impl Tensor {
     }
 
     pub fn to_vec(&self) -> Vec<f32> {
-        let staging = rt().readback_buffer_alloc.request(self.bsize() as u64);
-        let res = staging.download(&self.inner.buf).unwrap();
-
+        let res = self.readback();
         cleanup();
-
         res
     }
 }
@@ -124,6 +165,14 @@ impl Tensor {
 
     pub fn mul(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
         ops::mul(self, other)
+    }
+
+    pub(crate) fn div(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
+        ops::div(self, other)
+    }
+
+    pub(crate) fn sub(&self, other: &Tensor) -> Result<Tensor, ops::TensorOpError> {
+        ops::sub(self, other)
     }
 
     pub fn sum(&self) -> Result<Tensor, ops::TensorOpError> {
@@ -146,11 +195,23 @@ impl Tensor {
         ops::relu(self)
     }
 
+    pub(crate) fn sqrt(&self) -> Result<Tensor, ops::TensorOpError> {
+        ops::sqrt(self)
+    }
+
     pub fn mul_s(&self, s: f32) -> Result<Tensor, TensorOpError> {
         ops::mul_scalar(self, s)
     }
 
+    pub(crate) fn add_s(&self, s: f32) -> Result<Tensor, TensorOpError> {
+        ops::add_scalar(self, s)
+    }
+
     pub fn outer(&self, other: &Tensor) -> Result<Tensor, TensorOpError> {
         ops::outer(self, other)
+    }
+
+    pub fn cross_entropy_loss(&self, targets: &Tensor) -> Result<Tensor, TensorOpError> {
+        ops::cross_entropy_loss(self, targets)
     }
 }
