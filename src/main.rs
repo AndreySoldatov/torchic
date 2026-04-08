@@ -1,8 +1,10 @@
+use std::io::{self, Write};
+
 use mnist::*;
 use ndarray::prelude::*;
 use torchic::{
     nn::{Adam, MLP},
-    runtime::{WGPUContext, init_runtime},
+    runtime::{WGPUContext, init_runtime, no_grad},
     tensor::Tensor,
 };
 
@@ -79,9 +81,44 @@ impl DataLoader {
     }
 }
 
+fn prompt_adapters() -> wgpu::Adapter {
+    let adapters = WGPUContext::list_adapters();
+
+    for (i, adapter) in adapters.iter().enumerate() {
+        let info = format!(
+            "{} + {}",
+            adapter.get_info().name,
+            adapter.get_info().backend
+        );
+        println!("{}. {}", i + 1, info)
+    }
+
+    print!("Enter selected adapter number: ");
+    let _ = io::stdout().flush();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let num: usize = input.trim().parse().unwrap();
+
+    let adapter = adapters.into_iter().nth(num - 1).unwrap();
+    return adapter;
+}
+
+fn draw_number(data: &[f32]) {
+    for l in data.chunks(28) {
+        for c in l {
+            if *c > 0.5 {
+                print!("#");
+            } else {
+                print!(" ");
+            }
+        }
+        println!()
+    }
+}
+
 fn main() {
-    let adapter = WGPUContext::list_adapters().into_iter().nth(0).unwrap();
-    init_runtime(adapter, 42);
+    // let adapter = WGPUContext::list_adapters().into_iter().nth(0).unwrap();
+    init_runtime(prompt_adapters(), 42);
 
     let mut loader = DataLoader::new();
 
@@ -101,8 +138,42 @@ fn main() {
         loss.backward();
         optimizer.step();
 
-        if i % 100 == 0 {
-            println!("i: {}, Loss: {}", i, loss.to_vec()[0]);
+        println!("i: {}, Loss: {}", i, loss.to_vec()[0]);
+    }
+
+    {
+        let _ng = no_grad().unwrap();
+        let (img, label) = loader.sample_test_batch(5);
+
+        let preds = model.forward(&img).unwrap();
+
+        let preds: Vec<usize> = preds
+            .to_vec()
+            .chunks(10)
+            .map(|v| {
+                v.iter()
+                    .enumerate()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .unwrap()
+                    .0
+            })
+            .collect();
+
+        let exps: Vec<usize> = label
+            .to_vec()
+            .chunks(10)
+            .map(|v| {
+                v.iter()
+                    .enumerate()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .unwrap()
+                    .0
+            })
+            .collect();
+
+        for ((pred, exp), num) in preds.iter().zip(&exps).zip(img.to_vec().chunks(784)) {
+            draw_number(num);
+            println!("Expected: {} | Predicted: {}", exp, pred);
         }
     }
 }
