@@ -103,7 +103,7 @@ impl Model for MLP {
     }
 }
 
-struct Adam {
+pub struct Adam {
     params: Vec<Tensor>,
     m: Vec<Tensor>,
     v: Vec<Tensor>,
@@ -115,7 +115,7 @@ struct Adam {
 }
 
 impl Adam {
-    fn new<T: Model>(model: &T, lr: f32, b1: f32, b2: f32, eps: f32) -> Self {
+    pub fn new<T: Model>(model: &T, lr: f32, b1: f32, b2: f32, eps: f32) -> Self {
         let params = model.params();
 
         let m: Vec<Tensor> = params
@@ -140,14 +140,14 @@ impl Adam {
         }
     }
 
-    fn zero_grad(&self) {
+    pub fn zero_grad(&self) {
         for p in &self.params {
             p.zero_grad()
         }
     }
 
-    fn step(&mut self) {
-        let ng = no_grad().unwrap();
+    pub fn step(&mut self) {
+        let _ng = no_grad().unwrap();
 
         self.t += 1;
 

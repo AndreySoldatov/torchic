@@ -1,18 +1,108 @@
+use mnist::*;
+use ndarray::prelude::*;
 use torchic::{
+    nn::{Adam, MLP},
     runtime::{WGPUContext, init_runtime},
     tensor::Tensor,
 };
+
+struct DataLoader {
+    trn_img: Vec<f32>,
+    trn_lbl: Vec<f32>,
+    tst_img: Vec<f32>,
+    tst_lbl: Vec<f32>,
+    trn_cur: usize,
+    tst_cur: usize,
+}
+
+impl DataLoader {
+    fn new() -> Self {
+        let Mnist {
+            trn_img,
+            trn_lbl,
+            tst_img,
+            tst_lbl,
+            ..
+        } = MnistBuilder::new()
+            .label_format_one_hot()
+            .base_path("./")
+            .training_images_filename("train-images.idx3-ubyte")
+            .training_labels_filename("train-labels.idx1-ubyte")
+            .test_images_filename("t10k-images.idx3-ubyte")
+            .test_labels_filename("t10k-labels.idx1-ubyte")
+            .finalize();
+
+        Self {
+            trn_img: trn_img.into_iter().map(|v| v as f32 / 256.0).collect(),
+            trn_lbl: trn_lbl.into_iter().map(|v| v as f32).collect(),
+            tst_img: tst_img.into_iter().map(|v| v as f32 / 256.0).collect(),
+            tst_lbl: tst_lbl.into_iter().map(|v| v as f32).collect(),
+            trn_cur: 0,
+            tst_cur: 0,
+        }
+    }
+
+    fn sample_training_batch(&mut self, batch_size: usize) -> (Tensor, Tensor) {
+        if self.trn_cur * 784 + batch_size * 784 > self.trn_img.len() {
+            self.trn_cur = 0;
+        }
+
+        let img_start = self.trn_cur * 784;
+        let img_end = self.trn_cur * 784 + batch_size * 784;
+        let img_tensor = Tensor::new(&[batch_size, 784], &self.trn_img[img_start..img_end], false);
+
+        let lbl_start = self.trn_cur * 10;
+        let lbl_end = self.trn_cur * 10 + batch_size * 10;
+        let lbl_tensor = Tensor::new(&[batch_size, 10], &self.trn_lbl[lbl_start..lbl_end], false);
+
+        self.trn_cur += batch_size;
+
+        (img_tensor, lbl_tensor)
+    }
+
+    fn sample_test_batch(&mut self, batch_size: usize) -> (Tensor, Tensor) {
+        if self.tst_cur * 784 + batch_size * 784 > self.tst_img.len() {
+            self.tst_cur = 0;
+        }
+
+        let img_start = self.tst_cur * 784;
+        let img_end = self.tst_cur * 784 + batch_size * 784;
+        let img_tensor = Tensor::new(&[batch_size, 784], &self.tst_img[img_start..img_end], false);
+
+        let lbl_start = self.tst_cur * 10;
+        let lbl_end = self.tst_cur * 10 + batch_size * 10;
+        let lbl_tensor = Tensor::new(&[batch_size, 10], &self.tst_lbl[lbl_start..lbl_end], false);
+
+        self.tst_cur += batch_size;
+
+        (img_tensor, lbl_tensor)
+    }
+}
 
 fn main() {
     let adapter = WGPUContext::list_adapters().into_iter().nth(0).unwrap();
     init_runtime(adapter, 42);
 
-    // let t1 = Tensor::ones(&[3], true);
-    // let t2 = Tensor::new(&[2], &[2.0, 5.0], true);
+    let mut loader = DataLoader::new();
 
-    // let res = t1.outer(&t2).unwrap();
-    // res.backward();
+    let batch_size = 240;
+    let lr = 1e-3;
 
-    // println!("{:?}, {:?}", res.to_vec(), res.shape());
-    // println!("{:?}", t2.grad().unwrap().to_vec());
+    let model = MLP::new(&[784, 256, 128, 10], true);
+    let mut optimizer = Adam::new(&model, lr, 0.9, 0.999, 1e-8);
+
+    for i in 0..1000 {
+        let (img, lbl) = loader.sample_training_batch(batch_size);
+
+        let output = model.forward(&img).unwrap();
+        let loss = output.cross_entropy_loss(&lbl).unwrap();
+
+        optimizer.zero_grad();
+        loss.backward();
+        optimizer.step();
+
+        if i % 100 == 0 {
+            println!("i: {}, Loss: {}", i, loss.to_vec()[0]);
+        }
+    }
 }

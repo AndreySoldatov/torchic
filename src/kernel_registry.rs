@@ -198,7 +198,7 @@ fn kernel_key_to_bgl(key: &KernelKey, device: Arc<wgpu::Device>) -> wgpu::BindGr
         KernelKey::Op(OpType::Matmul) => vec![true, true, false, true],
         KernelKey::Op(OpType::Transpose) => vec![true, false, true],
         KernelKey::Op(OpType::UnopEwizeType(_)) => vec![true, false],
-        KernelKey::Op(OpType::ScalarEwize(_)) => vec![true, false],
+        KernelKey::Op(OpType::ScalarEwize(_)) => vec![true, false, true],
         KernelKey::Op(OpType::Outer) => vec![true, true, false, true],
         KernelKey::Op(OpType::CrossEntropyLoss) => {
             panic!("CrossEntropyLoss does not use a GPU kernel bind group layout")
