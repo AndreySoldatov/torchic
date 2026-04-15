@@ -671,7 +671,7 @@ pub fn outer(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorOpError> {
         op.as_ref(),
         kernel.pipeline(),
         &bg,
-        (m.div_ceil(8), n.div_ceil(8), 1),
+        (n.div_ceil(8), m.div_ceil(8), 1),
     );
 
     let requires_grad = should_grad(&[lhs.requires_grad(), rhs.requires_grad()]);

@@ -137,7 +137,7 @@ impl KernelRegistry {
                 let mut variables = HashMap::new();
                 match typ {
                     ReduceOpType::Sum => {
-                        variables.insert("identity", "1.0");
+                        variables.insert("identity", "0.0");
                         variables.insert("map", "acc + x");
                     }
                     ReduceOpType::Max => {
