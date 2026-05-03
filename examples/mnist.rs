@@ -116,13 +116,17 @@ fn main() {
     let train_batches = loader.training_batches(batch_size);
     let test_batches = loader.test_batches(batch_size);
 
-    let epochs = 5;
+    let epochs = 10;
     let lr = 1e-3;
 
     let model = MLP::new(&[784, 256, 128, 10], true);
     let mut optimizer = Adam::new(&model, lr, 0.9, 0.999, 1e-8);
 
+    let mut epoch_times = vec![];
+    let mut losses = vec![];
     for epoch in 0..epochs {
+        let start = std::time::Instant::now();
+
         let mut total_loss = 0.0;
 
         for (img, lbl) in &train_batches {
@@ -136,12 +140,17 @@ fn main() {
             total_loss += loss.to_vec()[0];
         }
 
+        epoch_times.push(start.elapsed().as_secs_f32());
+        losses.push(total_loss / train_batches.len() as f32);
         println!(
-            "Epoch: {}, Loss: {}",
+            "Epoch: {}, Loss: {}, epoch time: {:.2}s",
             epoch + 1,
-            total_loss / train_batches.len() as f32
+            losses[losses.len() - 1],
+            epoch_times[epoch_times.len() - 1],
         )
     }
+    std::fs::write("./epoch_times.txt", format!("{:?}", epoch_times)).unwrap();
+    std::fs::write("./loss.txt", format!("{:?}", losses)).unwrap();
 
     {
         // Evaluation

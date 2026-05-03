@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::{
     autograd::GradStore,
     buffer_alloc::{
-        BufferAllocatorRef,
+        BufferAllocStats, BufferAllocatorRef,
         usage_marker::{Readback, Storage},
     },
     kernel_registry::KernelRegistry,
@@ -51,6 +51,28 @@ pub(crate) struct Runtime {
     pub(crate) seed: u32,
 }
 
+impl Runtime {
+    pub(crate) fn hard_evict(&self, target: Option<u64>) {
+        self.storage_buffer_alloc.reclaim();
+        self.readback_buffer_alloc.reclaim();
+        self.storage_buffer_alloc.hard_evict(target);
+        self.readback_buffer_alloc.hard_evict(target);
+    }
+}
+
+pub struct RuntimeStats {
+    pub storage_buffer_stats: BufferAllocStats,
+    pub readback_buffer_stats: BufferAllocStats,
+}
+
+pub fn stats() -> RuntimeStats {
+    let rt = rt();
+    RuntimeStats {
+        storage_buffer_stats: rt.storage_buffer_alloc.stats(),
+        readback_buffer_stats: rt.readback_buffer_alloc.stats(),
+    }
+}
+
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
 
 pub fn init_runtime(adapter: wgpu::Adapter, seed: u32) {
@@ -74,11 +96,6 @@ pub fn init_runtime(adapter: wgpu::Adapter, seed: u32) {
 
 pub(crate) fn rt() -> Arc<Runtime> {
     RUNTIME.get().expect("Runtime is not initialized! Initialize runtime with torchic::runtime::init_runtime(adapter)").clone()
-}
-
-pub fn dump_stats() {
-    let rt = rt();
-    println!("{:#?}", rt.storage_buffer_alloc.stats());
 }
 
 pub struct NoGradGuard(bool);
@@ -116,5 +133,7 @@ pub(crate) fn cleanup() {
     rt().grad_store.cleanup();
     rt().storage_buffer_alloc.reclaim();
     rt().readback_buffer_alloc.reclaim();
+    rt().storage_buffer_alloc.try_evict();
+    rt().readback_buffer_alloc.try_evict();
     rt().metadata_arena.lock().unwrap().reset();
 }
