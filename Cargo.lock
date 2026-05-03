@@ -1207,6 +1207,8 @@ dependencies = [
  "mnist",
  "ndarray",
  "pollster",
+ "serde",
+ "serde_json",
  "slotmap",
  "strum",
  "strum_macros",

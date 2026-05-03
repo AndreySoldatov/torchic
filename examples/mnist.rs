@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use mnist::*;
 use torchic::{
     nn::{Adam, MLP},
-    runtime::{WGPUContext, init_runtime, no_grad},
+    runtime::{RuntimeStats, WGPUContext, init_runtime, no_grad, stats},
     tensor::Tensor,
 };
 
@@ -110,17 +110,24 @@ fn one_hot_batch_to_indices(data: &[f32]) -> Vec<usize> {
 fn main() {
     init_runtime(prompt_adapters(), 42);
 
+    let mut stat_vec = vec![];
+    stat_vec.push(stats());
+
     let loader = DataLoader::new();
 
     let batch_size = 240;
     let train_batches = loader.training_batches(batch_size);
     let test_batches = loader.test_batches(batch_size);
 
+    stat_vec.push(stats());
+
     let epochs = 10;
     let lr = 1e-3;
 
     let model = MLP::new(&[784, 256, 128, 10], true);
     let mut optimizer = Adam::new(&model, lr, 0.9, 0.999, 1e-8);
+
+    stat_vec.push(stats());
 
     let mut epoch_times = vec![];
     let mut losses = vec![];
@@ -147,10 +154,12 @@ fn main() {
             epoch + 1,
             losses[losses.len() - 1],
             epoch_times[epoch_times.len() - 1],
-        )
+        );
+        stat_vec.push(stats());
     }
     std::fs::write("./epoch_times.txt", format!("{:?}", epoch_times)).unwrap();
     std::fs::write("./loss.txt", format!("{:?}", losses)).unwrap();
+    serde_json::to_writer_pretty(std::fs::File::create("stats.json").unwrap(), &stat_vec).unwrap();
 
     {
         // Evaluation

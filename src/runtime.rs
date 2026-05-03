@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
+use serde::Serialize;
+
 use crate::{
     autograd::GradStore,
     buffer_alloc::{
@@ -60,6 +62,7 @@ impl Runtime {
     }
 }
 
+#[derive(Serialize)]
 pub struct RuntimeStats {
     pub storage_buffer_stats: BufferAllocStats,
     pub readback_buffer_stats: BufferAllocStats,

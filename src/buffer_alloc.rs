@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex, mpsc::channel},
 };
 
+use serde::Serialize;
 use slotmap::{SlotMap, new_key_type};
 use wgpu::{BufferDescriptor, BufferUsages};
 
@@ -44,6 +45,18 @@ pub(crate) struct MemoryCachePolicy {
     pub(crate) hard_cache_limit: u64,
     pub(crate) max_ttl: usize,
     pub(crate) eviction_debounce: usize,
+}
+
+impl Default for MemoryCachePolicy {
+    fn default() -> Self {
+        MemoryCachePolicy {
+            cache_to_used_proportion: 0.5,
+            soft_cache_limit: 1024 * 1024 * 1024,
+            hard_cache_limit: 1024 * 1024 * 1024 * 2,
+            max_ttl: 128,
+            eviction_debounce: 128,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -324,17 +337,20 @@ pub struct BufferAllocatorRef<T: usage_marker::BufferUsageMarker> {
     _tag: PhantomData<T>,
 }
 
+#[derive(Serialize)]
 pub enum BufferStatus {
     InUse,
     Pending,
     Free,
 }
 
+#[derive(Serialize)]
 pub struct BufferStat {
     pub capacity: u64,
     pub status: BufferStatus,
 }
 
+#[derive(Serialize)]
 pub struct BufferAllocStats {
     pub buffers: Vec<BufferStat>,
 }
@@ -386,13 +402,7 @@ impl BufferAllocatorRef<usage_marker::Storage> {
             alloc: Arc::new(Mutex::new(BufferAllocator::new(
                 ctx.clone(),
                 Usage::Storage,
-                MemoryCachePolicy {
-                    cache_to_used_proportion: 0.5,
-                    soft_cache_limit: 1024 * 1024 * 1024,
-                    hard_cache_limit: 1024 * 1024 * 1024 * 2,
-                    max_ttl: 128,
-                    eviction_debounce: 128,
-                },
+                MemoryCachePolicy::default(),
             ))),
             ctx,
             _tag: PhantomData,
@@ -406,13 +416,7 @@ impl BufferAllocatorRef<usage_marker::Readback> {
             alloc: Arc::new(Mutex::new(BufferAllocator::new(
                 ctx.clone(),
                 Usage::Readback,
-                MemoryCachePolicy {
-                    cache_to_used_proportion: 0.5,
-                    soft_cache_limit: 1024 * 1024 * 1024,
-                    hard_cache_limit: 1024 * 1024 * 1024 * 2,
-                    max_ttl: 128,
-                    eviction_debounce: 128,
-                },
+                MemoryCachePolicy::default(),
             ))),
             ctx,
             _tag: PhantomData,
